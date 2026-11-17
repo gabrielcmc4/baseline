@@ -1,6 +1,6 @@
 // Reads every frame of a video file in the browser. WebCodecs + mp4box when possible, <video> playback otherwise.
 const MAX_SIDE = 1600;
-function loadVideo(file) { return new Promise((res, rej) => { const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = URL.createObjectURL(file);
+function loadVideo(file) { return new Promise((res, rej) => { const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'metadata'; v.src = URL.createObjectURL(file);
   v.onloadedmetadata = () => res(v); v.onerror = () => rej(new Error('unsupported')); }); }
 export async function probe(file) { const v = await loadVideo(file); const sc = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
   return { video: v, W: Math.round(v.videoWidth * sc / 2) * 2, H: Math.round(v.videoHeight * sc / 2) * 2, duration: v.duration }; }

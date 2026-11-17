@@ -16,6 +16,7 @@ $('pick').onclick = () => $('file').click(); $('file').onchange = e => e.target.
 const drop = $('drop'); ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); })); ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', e => e.dataTransfer.files[0] && openFile(e.dataTransfer.files[0]));
 async function openFile(file) { $('err1').hidden = true; S.mode = document.querySelector('input[name=mode]:checked').value;
+  S.autoToken = null; if (S.info && S.info.video) { const old = S.info.video, u = old.src; try { old.pause(); old.removeAttribute('src'); old.load(); URL.revokeObjectURL(u); } catch (e) {} S.info = null; S.img = null; } // let go of the previous video: two multi-gigabyte files at once can exhaust the tab's memory
   try { S.info = await probe(file); S.file = file; S.lines = {}; S.raw = {}; S.pending = []; S.cal = null; S.active = 'baseline'; $('go').disabled = true; $('calMsg').textContent = ''; step(2); await loadFrame(); autoFind(); }
   catch (e) { console.error(e); $('err1').textContent = t('errVideo'); $('err1').hidden = false; } }
 

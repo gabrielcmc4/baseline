@@ -90,11 +90,13 @@ function grayAt(img, x, y) { x = Math.round(x); y = Math.round(y); if (x < 0 || 
 // snap points along a tapped segment to the bright painted line nearby
 export function refineLine(img, a, b, s = 1) {
   const L = Math.hypot(b[0] - a[0], b[1] - a[1]); if (L < 5) return [a, b];
-  const d = [(b[0] - a[0]) / L, (b[1] - a[1]) / L], nrm = [-d[1], d[0]], R = Math.round(7 * s), pts = [];
+  const d = [(b[0] - a[0]) / L, (b[1] - a[1]) / L], nrm = [-d[1], d[0]], R = Math.round(7 * s), wr = Math.max(4, Math.round(4 * s)), pts = [];
   const N = Math.max(8, Math.min(120, Math.round(L / 4)));
   for (let k = 0; k <= N; k++) {
-    const px = a[0] + d[0] * L * k / N, py = a[1] + d[1] * L * k / N; let best = -1, bo = 0, lo = 255;
-    for (let o = -R; o <= R; o++) { const g = grayAt(img, px + nrm[0] * o, py + nrm[1] * o); if (g > best) { best = g; bo = o; } if (g < lo) lo = g; }
+    const px = a[0] + d[0] * L * k / N, py = a[1] + d[1] * L * k / N; let best = -1, bo = 0, lo = 255, rb = -1e9; const prof = []; // a painted line is a ridge (darker on both sides), not just the brightest spot: a sunlit patch next to it must not win
+    for (let o = -R - wr; o <= R + wr; o++) prof.push(grayAt(img, px + nrm[0] * o, py + nrm[1] * o));
+    for (let o = -R; o <= R; o++) { const g = prof[o + R + wr], rg = g - Math.max(prof[o + R], prof[o + R + 2 * wr]); if (rg > rb || (rg === rb && g > best)) { rb = rg; best = g; bo = o; } }
+    lo = Math.max(prof[bo + R], prof[bo + R + 2 * wr]);
     if (best - lo > Math.max(10, 0.12 * best)) { // sub-pixel centroid around the peak
       let sw = 0, so = 0; for (let o = bo - 3; o <= bo + 3; o++) { const w = Math.max(0, grayAt(img, px + nrm[0] * o, py + nrm[1] * o) - lo - (best - lo) * 0.5); sw += w; so += w * o; }
       const oo = sw > 0 ? so / sw : bo; pts.push([px + nrm[0] * oo, py + nrm[1] * oo]);
@@ -142,19 +144,23 @@ export class Detector {
       if (Math.abs(b[0] - a[0]) > 1) yb = a[1] + (x - a[0]) * (b[1] - a[1]) / (b[0] - a[0]);
       this.cut[x] = Math.max(0, Math.min(H - 2, Math.round(yb - 10 * this.s))); this.tape[x] = Math.round(cam.tapeY(x) + 20 * this.s);
     }
-    this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.mt = 15; this.n = 0; this.shift = [0, 0]; this.valid = true;
+    this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.mt = 15; this.n = 0; this.shift = [0, 0]; this.valid = true; this.maxShift = 0;
     this.ref = refPts || []; this.refScore = null; this.cw = Math.ceil(W / 4); this.ch = Math.ceil(H / 4); this.coarse = new Uint16Array(this.cw * this.ch);
   }
   _gray(rgba) { const W = this.W, H = this.H, g = new Uint8Array(W * H), t = new Uint8Array(W * H);
     for (let i = 0, j = 0; i < g.length; i++, j += 4) t[i] = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8;
     for (let y = 1; y < H - 1; y++) { let o = y * W + 1; for (let x = 1; x < W - 1; x++, o++) g[o] = (t[o - W - 1] + 2 * t[o - W] + t[o - W + 1] + 2 * t[o - 1] + 4 * t[o] + 2 * t[o + 1] + t[o + W - 1] + 2 * t[o + W] + t[o + W + 1]) >> 4; }
     return g; }
-  _drift(g, local) { if (this.ref.length < 20) return; const W = this.W, H = this.H, R = Math.round(8 * this.s), r = local ? 2 : R, cx0 = local ? this.shift[0] : 0, cy0 = local ? this.shift[1] : 0; let best = -1, bx = 0, by = 0;
-    for (let dy = Math.max(-R, cy0 - r); dy <= Math.min(R, cy0 + r); dy++) for (let dx = Math.max(-R, cx0 - r); dx <= Math.min(R, cx0 + r); dx++) { let s = 0; for (const p of this.ref) { const x = (p[0] + dx) | 0, y = (p[1] + dy) | 0; if (x >= 0 && y >= 0 && x < W && y < H) s += g[y * W + x]; } if (s > best) { best = s; bx = dx; by = dy; } }
-    let s0 = 0; for (const p of this.ref) { const x = p[0] | 0, y = p[1] | 0; if (x >= 0 && y >= 0 && x < W && y < H) s0 += g[y * W + x]; }
-    if (local) { let sc = 0; for (const p of this.ref) { const x = (p[0] + cx0) | 0, y = (p[1] + cy0) | 0; if (x >= 0 && y >= 0 && x < W && y < H) sc += g[y * W + x]; } if (best < 1.01 * sc) { bx = cx0; by = cy0; best = sc; } } // do not chase noise: move only for a clear gain
+  // where the court lines are in this frame relative to the frame the court was marked in (a camera on a fence sways); mode 0: small step from the last position, 1: wider look around it, 2: anywhere within reach (start, after a cut, after losing it)
+  _drift(g, mode) { if (this.ref.length < 20) return; const W = this.W, H = this.H, RM = Math.round(40 * this.s), ref = this.ref;
+    const score = (dx, dy) => { let s = 0; for (const p of ref) { const x = (p[0] + dx) | 0, y = (p[1] + dy) | 0; if (x >= 0 && y >= 0 && x < W && y < H) s += g[y * W + x]; } return s; };
+    const search = (cx, cy, r, st) => { let best = -1, bx = cx, by = cy; for (let dy = Math.max(-RM, cy - r); dy <= Math.min(RM, cy + r); dy += st) for (let dx = Math.max(-RM, cx - r); dx <= Math.min(RM, cx + r); dx += st) { const s = score(dx, dy); if (s > best) { best = s; bx = dx; by = dy; } } return [bx, by, best]; };
+    const [cx0, cy0] = this.shift; let bx, by, best;
+    if (mode === 2) { [bx, by] = search(0, 0, RM, 3); [bx, by, best] = search(bx, by, 3, 1); }
+    else { [bx, by, best] = search(cx0, cy0, mode ? Math.round(8 * this.s) : 2, 1); const sc = score(cx0, cy0); if (best < 1.01 * sc) { bx = cx0; by = cy0; best = sc; } } // do not chase noise: move only for a clear gain
     if (this.refScore === null) this.refScore = best;
-    this.valid = best > 0.8 * this.refScore && Math.abs(bx) < R && Math.abs(by) < R; this.shift = [bx, by]; if (this.valid) this.refScore = 0.98 * this.refScore + 0.02 * best; }
+    this.valid = best > 0.8 * this.refScore && Math.abs(bx) < RM && Math.abs(by) < RM; this.shift = [bx, by]; if (this.valid) this.refScore = 0.98 * this.refScore + 0.02 * best;
+    if (Math.abs(bx) > this.maxShift) this.maxShift = Math.abs(bx); if (Math.abs(by) > this.maxShift) this.maxShift = Math.abs(by); }
   // push a frame; returns {t, c:[[x,y,area]], blobs:[[x0,y0,x1,y1]], valid} for the PREVIOUS frame (or null)
   push(rgba, t) {
     const g = this._gray(rgba);
@@ -162,7 +168,7 @@ export class Detector {
     // block averages of the picture: a big share of blocks changing at once means the video was edited here and another clip starts
     const bw = this.W >> 4, bh = this.H >> 4, blk = new Uint8Array(bw * bh); for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) { let sum = 0; for (let dy = 2; dy < 16; dy += 4) { const o = (by * 16 + dy) * this.W + bx * 16; sum += g[o + 2] + g[o + 6] + g[o + 10] + g[o + 14]; } blk[by * bw + bx] = sum >> 4; }
     let cut = false; if (this.blk) { let c = 0; for (let i = 0; i < blk.length; i++) { const e = blk[i] - this.blk[i]; if (e > 12 || e < -12) c++; } cut = c / blk.length > 0.1; } this.blk = blk;
-    this._drift(g, !cut && this.n % 15 !== 0); // full search now and then, a small search around the last shift on every other frame
+    this._drift(g, cut || this.n === 0 ? 2 : this.n % 15 === 0 ? 1 : 0); if (!this.valid && !cut && this.n % 5 === 0) this._drift(g, 2); // lost the court: look further away, but not on every frame
     this.bufs.push({ rgba, g, t, shift: this.shift.slice(), valid: this.valid, cut }); this.n++;
     if (this.bufs.length < 3) return null;
     const [p, c, nx] = this.bufs, W = this.W, H = this.H, mask = this.mask, hits = [], d = c.rgba, coarse = this.coarse, cw = this.cw; coarse.fill(0);
@@ -396,6 +402,10 @@ function autoCourtCore(img, dbg) {
   const mask = new Uint8Array(W * H), ws = [Math.max(2, Math.round(3 * s)), Math.max(4, Math.round(8 * s))], pts = [];
   for (let y = 10; y < H - 10; y++) for (let x = 10; x < W - 10; x++) { const o = y * W + x, v = g[o]; if (v < VMIN) continue; let on = false; const st = sat[o];
     for (const w of ws) { if ((v - Math.max(g[o - w], g[o + w]) > CT && (st <= 70 || st < Math.min(sat[o - w], sat[o + w]) - 25)) || (v - Math.max(g[o - w * W], g[o + w * W]) > CT && (st <= 70 || st < Math.min(sat[o - w * W], sat[o + w * W]) - 25))) { on = true; break; } } if (on) { mask[o] = 1; pts.push(o); } }
+  { // paint lines are thin: drop areas where the mask is dense (sunlit foliage, fences, crowds)
+    const B = Math.max(16, Math.round(40 * s)), bw = Math.ceil(W / B), bh = Math.ceil(H / B), cnt = new Float32Array(bw * bh); for (const o of pts) cnt[((o / W / B) | 0) * bw + ((o % W) / B | 0)]++;
+    const bad = new Uint8Array(bw * bh); for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) { let sum = 0, n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = by + dy, xx = bx + dx; if (yy < 0 || xx < 0 || yy >= bh || xx >= bw) continue; sum += cnt[yy * bw + xx]; n++; } if (!globalThis.NOD && (cnt[by * bw + bx] > 0.3 * B * B || sum > 0.12 * n * B * B)) bad[by * bw + bx] = 1; }
+    let k = 0; for (const o of pts) { if (bad[((o / W / B) | 0) * bw + ((o % W) / B | 0)]) mask[o] = 0; else pts[k++] = o; } pts.length = k; }
   if (dbg) dbg.pts = pts.length;
   if (pts.length < 200 || pts.length > 0.2 * W * H) return null;
   // Hough transform
@@ -411,7 +421,7 @@ function autoCourtCore(img, dbg) {
     for (let it = 0; it < 2; it++) { let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0; for (const o of pts) { const x = o % W, y = (o / W) | 0; if (Math.abs(a * x + b * y + c) > 4 * s) continue; n++; sx += x; sy += y; sxx += x * x; sxy += x * y; syy += y * y; }
       if (n < 20) break; const mx = sx / n, my = sy / n, cxx = sxx / n - mx * mx, cxy = sxy / n - mx * my, cyy = syy / n - my * my, th = 0.5 * Math.atan2(2 * cxy, cxx - cyy); a = -Math.sin(th); b = Math.cos(th); c = -(a * mx + b * my); }
     if (!lines.some(l => Math.abs(l[0] * a + l[1] * b) > 0.998 && Math.abs(Math.abs(l[2]) - Math.abs(c)) < 6 * s)) lines.push([a, b, c, votes]); }
-  if (dbg) { dbg.peaks = peaks.length; dbg.lines = lines.map(l => [Math.round(Math.atan2(-l[0], l[1]) * 180 / Math.PI), Math.round(-(l[0] * W / 2 + l[2]) / (l[1] || 1e-9))]); }
+  if (dbg) { dbg.L = lines; dbg.P = pts; dbg.peaks = peaks.length; dbg.lines = lines.map(l => [Math.round(Math.atan2(-l[0], l[1]) * 180 / Math.PI), Math.round(-(l[0] * W / 2 + l[2]) / (l[1] || 1e-9))]); }
   if (lines.length < 4) return null;
   const X = (l, m) => { const z = l[0] * m[1] - l[1] * m[0]; if (Math.abs(z) < 1e-9) return null; return [(l[1] * m[2] - l[2] * m[1]) / z, (l[2] * m[0] - l[0] * m[2]) / z]; };
   // candidate vanishing points for the lines that run along the court
