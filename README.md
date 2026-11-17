@@ -33,6 +33,21 @@ For every shot of the player nearest the camera it reports speed, height over th
 
 `tools/` has the Node scripts used to validate the engine against real footage.
 
+## Accounts and history (optional)
+
+With a Firebase project configured in `js/firebase-config.js`, people can sign in with Google, each analysis is saved to their profile, and "My history" shows every session by date plus progress charts. Without it the app works as before, with no sign-in.
+
+What is stored per session: date, session type, the numbers for each shot and one small court picture. Videos are never uploaded.
+
+Setup: create a Firebase project, add a web app and paste its config into `js/firebase-config.js`, enable Google as a sign-in provider, add the site's domain to the authorized domains, create a Firestore database and publish `firestore.rules`.
+
+Security choices:
+- No passwords: sign-in is handled by Google; the app only receives the user id and display name.
+- `firestore.rules` lets a signed-in user read and write only documents under their own user id, with size and field limits; everything else is denied.
+- The Firebase config values are identifiers, not secrets.
+- A Content-Security-Policy restricts scripts and connections to this site and Google's sign-in and database hosts.
+- Saved data is treated as untrusted when read back: text goes in as text, never as HTML.
+
 ## Known limits
 
 - One camera cannot see depth directly. Landing depth is typically ±1.3 m on footage from a 2.6 m high camera at 30 fps; sideways it is a few centimetres. Shots within that margin of a line are marked "close call".
