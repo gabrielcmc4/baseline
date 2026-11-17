@@ -59,7 +59,7 @@ function drawMini() { const m = $('mini'); m.innerHTML = ''; const NS = 'http://
 $('check').onclick = () => { const msg = $('calMsg'); msg.className = 'msg'; const ids = Object.keys(S.lines); const dirs = new Set(ids.map(id => MODEL_LINES[id][0][0] === MODEL_LINES[id][1][0] ? 'v' : 'h'));
   if (ids.length < 4 || dirs.size < 2) { msg.textContent = t('needLines'); msg.classList.add('bad'); return; }
   const cal = calibrate(S.lines, S.info.W, S.info.H); if (!cal) { msg.textContent = t('calFail'); msg.classList.add('bad'); return; }
-  S.cal = cal; const ok = cal.rms < 4 * scale(); msg.textContent = (ok ? t('calOk') : t('calPoor')) + ' ' + t('camInfo', { h: num(cal.cam.C[2], 1), d: num(-cal.cam.C[1], 1) }); msg.classList.add(ok ? 'good' : 'bad'); $('go').disabled = !ok; drawFrame(); };
+  S.cal = cal; const ok = cal.rms < 4 * Math.max(0.8, scale()); msg.textContent = (ok ? t('calOk') : t('calPoor')) + ' ' + t('camInfo', { h: num(cal.cam.C[2], 1), d: num(-cal.cam.C[1], 1) }); msg.classList.add(ok ? 'good' : 'bad'); $('go').disabled = !ok; drawFrame(); };
 
 // ---- step 3: analysis
 $('go').onclick = run; $('cancel').onclick = () => { S.abort?.abort(); step(2); };

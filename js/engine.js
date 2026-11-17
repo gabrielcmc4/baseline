@@ -95,7 +95,7 @@ export function refineLine(img, a, b, s = 1) {
   for (let k = 0; k <= N; k++) {
     const px = a[0] + d[0] * L * k / N, py = a[1] + d[1] * L * k / N; let best = -1, bo = 0, lo = 255;
     for (let o = -R; o <= R; o++) { const g = grayAt(img, px + nrm[0] * o, py + nrm[1] * o); if (g > best) { best = g; bo = o; } if (g < lo) lo = g; }
-    if (best - lo > 25) { // sub-pixel centroid around the peak
+    if (best - lo > Math.max(10, 0.12 * best)) { // sub-pixel centroid around the peak
       let sw = 0, so = 0; for (let o = bo - 3; o <= bo + 3; o++) { const w = Math.max(0, grayAt(img, px + nrm[0] * o, py + nrm[1] * o) - lo - (best - lo) * 0.5); sw += w; so += w * o; }
       const oo = sw > 0 ? so / sw : bo; pts.push([px + nrm[0] * oo, py + nrm[1] * oo]);
     }
@@ -142,36 +142,39 @@ export class Detector {
       if (Math.abs(b[0] - a[0]) > 1) yb = a[1] + (x - a[0]) * (b[1] - a[1]) / (b[0] - a[0]);
       this.cut[x] = Math.max(0, Math.min(H - 2, Math.round(yb - 10 * this.s))); this.tape[x] = Math.round(cam.tapeY(x) + 20 * this.s);
     }
-    this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.n = 0; this.shift = [0, 0]; this.valid = true;
+    this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.mt = 15; this.n = 0; this.shift = [0, 0]; this.valid = true;
     this.ref = refPts || []; this.refScore = null; this.cw = Math.ceil(W / 4); this.ch = Math.ceil(H / 4); this.coarse = new Uint16Array(this.cw * this.ch);
   }
   _gray(rgba) { const W = this.W, H = this.H, g = new Uint8Array(W * H), t = new Uint8Array(W * H);
     for (let i = 0, j = 0; i < g.length; i++, j += 4) t[i] = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8;
     for (let y = 1; y < H - 1; y++) { let o = y * W + 1; for (let x = 1; x < W - 1; x++, o++) g[o] = (t[o - W - 1] + 2 * t[o - W] + t[o - W + 1] + 2 * t[o - 1] + 4 * t[o] + 2 * t[o + 1] + t[o + W - 1] + 2 * t[o + W] + t[o + W + 1]) >> 4; }
     return g; }
-  _drift(g) { if (this.ref.length < 20) return; const W = this.W, H = this.H, R = Math.round(8 * this.s); let best = -1, bx = 0, by = 0;
-    for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { let s = 0; for (const p of this.ref) { const x = (p[0] + dx) | 0, y = (p[1] + dy) | 0; if (x >= 0 && y >= 0 && x < W && y < H) s += g[y * W + x]; } if (s > best) { best = s; bx = dx; by = dy; } }
+  _drift(g, local) { if (this.ref.length < 20) return; const W = this.W, H = this.H, R = Math.round(8 * this.s), r = local ? 2 : R, cx0 = local ? this.shift[0] : 0, cy0 = local ? this.shift[1] : 0; let best = -1, bx = 0, by = 0;
+    for (let dy = Math.max(-R, cy0 - r); dy <= Math.min(R, cy0 + r); dy++) for (let dx = Math.max(-R, cx0 - r); dx <= Math.min(R, cx0 + r); dx++) { let s = 0; for (const p of this.ref) { const x = (p[0] + dx) | 0, y = (p[1] + dy) | 0; if (x >= 0 && y >= 0 && x < W && y < H) s += g[y * W + x]; } if (s > best) { best = s; bx = dx; by = dy; } }
     let s0 = 0; for (const p of this.ref) { const x = p[0] | 0, y = p[1] | 0; if (x >= 0 && y >= 0 && x < W && y < H) s0 += g[y * W + x]; }
+    if (local) { let sc = 0; for (const p of this.ref) { const x = (p[0] + cx0) | 0, y = (p[1] + cy0) | 0; if (x >= 0 && y >= 0 && x < W && y < H) sc += g[y * W + x]; } if (best < 1.01 * sc) { bx = cx0; by = cy0; best = sc; } } // do not chase noise: move only for a clear gain
     if (this.refScore === null) this.refScore = best;
     this.valid = best > 0.8 * this.refScore && Math.abs(bx) < R && Math.abs(by) < R; this.shift = [bx, by]; if (this.valid) this.refScore = 0.98 * this.refScore + 0.02 * best; }
   // push a frame; returns {t, c:[[x,y,area]], blobs:[[x0,y0,x1,y1]], valid} for the PREVIOUS frame (or null)
   push(rgba, t) {
     const g = this._gray(rgba);
     if (this.bufs.length) { const q = this.bufs[this.bufs.length - 1].g; let d = 0, m = 0; for (let i = 0; i < g.length; i += 97) { const e = g[i] - q[i]; d += e < 0 ? -e : e; m++; } if (d / m < 0.02) return null; } // repeated frame (re-encoded video): skip it
-    if (this.n % 15 === 0) this._drift(g);
+    this._drift(g, this.n % 15 !== 0); // full search now and then, a small search around the last shift on every other frame
     this.bufs.push({ rgba, g, t, shift: this.shift.slice(), valid: this.valid }); this.n++;
     if (this.bufs.length < 3) return null;
     const [p, c, nx] = this.bufs, W = this.W, H = this.H, mask = this.mask, hits = [], d = c.rgba, coarse = this.coarse, cw = this.cw; coarse.fill(0);
-    for (let y = 1; y < H - 1; y++) { let o = y * W + 1;
-      for (let x = 1; x < W - 1; x++, o++) { const a = c.g[o]; let d1 = a - p.g[o]; if (d1 < 0) d1 = -d1; if (d1 <= 15) continue; let d2 = a - nx.g[o]; if (d2 < 0) d2 = -d2; if (d2 <= 15) continue;
+    // compare each pixel with the same court spot in the neighbouring frames, allowing for the camera having moved a little in between
+    const op = (p.shift[1] - c.shift[1]) * W + (p.shift[0] - c.shift[0]), on = (nx.shift[1] - c.shift[1]) * W + (nx.shift[0] - c.shift[0]), mg = 2 + Math.round(16 * this.s), MT = this.mt;
+    for (let y = mg; y < H - mg; y++) { let o = y * W + mg;
+      for (let x = mg; x < W - mg; x++, o++) { const a = c.g[o]; let d1 = a - p.g[o + op]; if (d1 < 0) d1 = -d1; if (d1 <= MT) continue; let d2 = a - nx.g[o + on]; if (d2 < 0) d2 = -d2; if (d2 <= MT) continue;
         coarse[(y >> 2) * cw + (x >> 2)]++;
         if (y > this.cut[x]) continue;
         const j = o * 4, r = d[j], gg = d[j + 1], b = d[j + 2], mx = r > gg ? (r > b ? r : b) : (gg > b ? gg : b), mn = r < gg ? (r < b ? r : b) : (gg < b ? gg : b), df = mx - mn; if (mx < 100 || df === 0) continue;
         let h; if (mx === r) h = 30 * (gg - b) / df; else if (mx === gg) h = 60 + 30 * (b - r) / df; else h = 120 + 30 * (r - gg) / df; if (h < 0) h += 180;
         const sat = 255 * df / mx;
         let ok = (h >= 20 && h <= 50 && sat >= 60) || (y < this.tape[x] && h >= 20 && h <= 80 && sat >= 30 && mx >= 185);
-        let rel = false; if (!ok && d1 >= 30 && d2 >= 30) { const pd = p.rgba, nd = nx.rgba, yc = (r + gg) / 2 - b, yp = (pd[j] + pd[j + 1]) / 2 - pd[j + 2], yn = (nd[j] + nd[j + 1]) / 2 - nd[j + 2]; // more yellow-green than what was there before and after
-          rel = yc - (yp > yn ? yp : yn) >= 22 && gg - (pd[j + 1] > nd[j + 1] ? pd[j + 1] : nd[j + 1]) >= 8 && gg >= r - 25; }
+        let rel = false; if (!ok && d1 >= 30 && d2 >= 30) { const pd = p.rgba, nd = nx.rgba, jp = j + 4 * op, jn = j + 4 * on, yc = (r + gg) / 2 - b, yp = (pd[jp] + pd[jp + 1]) / 2 - pd[jp + 2], yn = (nd[jn] + nd[jn + 1]) / 2 - nd[jn + 2]; // more yellow-green than what was there before and after
+          rel = yc - (yp > yn ? yp : yn) >= 22 && gg - (pd[jp + 1] > nd[jn + 1] ? pd[jp + 1] : nd[jn + 1]) >= 8 && gg >= r - 25; }
         if (ok) { hits.push(o); this.kind[o] = 1; } else if (rel) hits.push(o); } }
     const out = { t: c.t, c: [], c2: [], blobs: [], valid: c.valid }; // c: blobs with clear ball colour; c2: also small blobs that only pass the weaker test
     if (!(c.valid && hits.length < 4000)) for (const o of hits) this.kind[o] = 0;
@@ -331,7 +334,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
 // then tries every way of naming them and keeps the naming under which the whole court drawing best lands on paint.
 // Assumes the camera looks down the court from behind one baseline. Returns {raw: {lineId: [[x,y],[x,y]]}, score} or null.
 // Look for paint where the fitted camera says the not-yet-used lines should be, and refit with whatever is found.
-function growLines(img, lines, raw, cal) { const W = img.width, H = img.height, s = Math.sqrt(W * H / (720 * 1280)), segs = Object.entries(MODEL_LINES);
+function growLines(img, lines, raw, cal) { const W = img.width, H = img.height, s = Math.max(0.8, Math.sqrt(W * H / (720 * 1280))), segs = Object.entries(MODEL_LINES);
   for (let round = 0; round < 3 && cal.rms <= 3 * s; round++) { let added = 0;
     for (const [id, [A, B]] of segs) { if (lines[id] || (id.startsWith('far') && round === 0)) continue; let first = null, last = null; for (let k = 0; k <= 60; k++) { const P = [A[0] + (B[0] - A[0]) * k / 60, A[1] + (B[1] - A[1]) * k / 60, 0]; if (cal.cam.norm(P)[2] < 0.1) continue; const q = cal.cam.project(P); if (q[0] < 6 || q[1] < 6 || q[0] > W - 6 || q[1] > H - 6) continue; if (!first) first = q; last = q; }
       if (!first) continue; const L = Math.hypot(first[0] - last[0], first[1] - last[1]); if (L < 40 * s) continue; const got = refineLine(img, first, last, 2 * s), want = Math.max(8, Math.min(120, Math.round(L / 4))) + 1;
@@ -351,9 +354,11 @@ export function autoCourt(img, dbg) { const M = Math.max(img.width, img.height);
 function autoCourtCore(img, dbg) {
   const W = img.width, H = img.height, d = img.data, s = Math.sqrt(W * H / (720 * 1280)), g = new Uint8Array(W * H), sat = new Uint8Array(W * H);
   for (let i = 0, j = 0; i < g.length; i++, j += 4) { const r = d[j], gg = d[j + 1], b = d[j + 2]; g[i] = (r * 77 + gg * 150 + b * 29) >> 8; sat[i] = Math.max(r, gg, b) - Math.min(r, gg, b); }
+  const hist = new Uint32Array(256); for (let i = 0; i < g.length; i += 7) hist[g[i]]++; let acc95 = 0, p95 = 255; const tot = Math.ceil(g.length / 7); for (let v = 255; v >= 0; v--) { acc95 += hist[v]; if (acc95 >= 0.05 * tot) { p95 = v; break; } }
+  const CT = Math.max(7, Math.min(18, 18 * p95 / 200)), VMIN = Math.max(25, Math.min(70, 0.35 * p95)); // dark footage: paint is dimmer and stands out less
   const mask = new Uint8Array(W * H), ws = [Math.max(2, Math.round(3 * s)), Math.max(4, Math.round(8 * s))], pts = [];
-  for (let y = 10; y < H - 10; y++) for (let x = 10; x < W - 10; x++) { const o = y * W + x, v = g[o]; if (v < 70) continue; let on = false; const st = sat[o];
-    for (const w of ws) { if ((v - Math.max(g[o - w], g[o + w]) > 18 && (st <= 70 || st < Math.min(sat[o - w], sat[o + w]) - 25)) || (v - Math.max(g[o - w * W], g[o + w * W]) > 18 && (st <= 70 || st < Math.min(sat[o - w * W], sat[o + w * W]) - 25))) { on = true; break; } } if (on) { mask[o] = 1; pts.push(o); } }
+  for (let y = 10; y < H - 10; y++) for (let x = 10; x < W - 10; x++) { const o = y * W + x, v = g[o]; if (v < VMIN) continue; let on = false; const st = sat[o];
+    for (const w of ws) { if ((v - Math.max(g[o - w], g[o + w]) > CT && (st <= 70 || st < Math.min(sat[o - w], sat[o + w]) - 25)) || (v - Math.max(g[o - w * W], g[o + w * W]) > CT && (st <= 70 || st < Math.min(sat[o - w * W], sat[o + w * W]) - 25))) { on = true; break; } } if (on) { mask[o] = 1; pts.push(o); } }
   if (dbg) dbg.pts = pts.length;
   if (pts.length < 200 || pts.length > 0.2 * W * H) return null;
   // Hough transform
@@ -421,9 +426,9 @@ function autoCourtCore(img, dbg) {
     for (const id in hyp.per) { const q = hyp.per[id]; if (q.m && !id.startsWith('far') && q.n >= 6 && q.hit / q.n >= 0.5 && Math.hypot(q.first[0] - q.last[0], q.first[1] - q.last[1]) > 30 * s) raw[id] = [[q.first[0], q.first[1]], [q.last[0], q.last[1]]]; }
     const key = Object.keys(raw).map(id => id + Math.round(raw[id][0][1] / 20)).join(); if (seen.has(key) || Object.keys(raw).length < 4) continue; seen.add(key);
     let lines = {}; for (const id in raw) lines[id] = refineLine(img, raw[id][0], raw[id][1], s); let cal = calibrate(lines, W, H); if (!cal) continue;
-    const bad = Object.keys(cal.perLine).filter(id => cal.perLine[id] > 4 * s); if (bad.length && Object.keys(lines).length - bad.length >= 4) { for (const id of bad) { delete lines[id]; delete raw[id]; } cal = calibrate(lines, W, H); if (!cal) continue; }
+    const bad = Object.keys(cal.perLine).filter(id => cal.perLine[id] > 4 * Math.max(s, 0.8)); if (bad.length && Object.keys(lines).length - bad.length >= 4) { for (const id of bad) { delete lines[id]; delete raw[id]; } cal = calibrate(lines, W, H); if (!cal) continue; }
     ({ lines, cal } = growLines(img, lines, raw, cal));
-    const n = Object.keys(lines).length, C = cal.cam.C; if (dbg) (dbg.tried = dbg.tried || []).push([Object.keys(lines).join('+'), +cal.rms.toFixed(1), C.map(v => +v.toFixed(1)), +hyp.score.toFixed(0)]); if (cal.rms > 3 * s || C[2] < 0.8 || C[2] > 40 || C[1] > 2 || !Object.keys(lines).some(id => MODEL_LINES[id][0][0] === MODEL_LINES[id][1][0]) || !Object.keys(lines).some(id => MODEL_LINES[id][0][1] === MODEL_LINES[id][1][1])) continue;
+    const n = Object.keys(lines).length, C = cal.cam.C; if (dbg) (dbg.tried = dbg.tried || []).push([Object.keys(lines).join('+'), +cal.rms.toFixed(1), C.map(v => +v.toFixed(1)), +hyp.score.toFixed(0)]); if (cal.rms > 3 * Math.max(s, 0.8) || C[2] < 0.8 || C[2] > 40 || C[1] > 2 || !Object.keys(lines).some(id => MODEL_LINES[id][0][0] === MODEL_LINES[id][1][0]) || !Object.keys(lines).some(id => MODEL_LINES[id][0][1] === MODEL_LINES[id][1][1])) continue;
     if (n < 5) continue;
     if (!pick || n > pick.n || (n === pick.n && cal.rms < pick.cal.rms)) pick = { raw, lines, cal, n }; }
   return pick;
