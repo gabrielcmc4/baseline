@@ -12,23 +12,25 @@ function description(mp4, track) { const trak = mp4.getTrackById(track.id);
 
 async function decodeWebCodecs(file, info, onFrame, onProgress, signal) {
   const { W, H } = info, canvas = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H }), ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const mp4 = MP4Box.createFile(); let track = null, ready = false, failed = null, pending = 0, count = 0, stride = 1, total = 0, rot = 0; const queue = [];
-  const dec = new VideoDecoder({ error: e => { failed = e; }, output: fr => { try {
+  const mp4 = MP4Box.createFile(); let pos = 0, track = null, ready = false, failed = null, pending = 0, count = 0, stride = 1, total = 0, rot = 0; const queue = [];
+  const dec = new VideoDecoder({ error: e => { failed = e; globalThis.__crumb?.('decoder error ' + e.message); }, output: fr => { try {
       if (count % stride === 0) { ctx.save();
         if (rot === 90) { ctx.translate(W, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); } else if (rot === 270) { ctx.translate(0, H); ctx.rotate(-Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); }
         else if (rot === 180) { ctx.translate(W, H); ctx.rotate(Math.PI); ctx.drawImage(fr, 0, 0, W, H); } else ctx.drawImage(fr, 0, 0, W, H);
         ctx.restore(); onFrame(ctx.getImageData(0, 0, W, H), fr.timestamp / 1e6); }
+      if (count === 0 || count % 120 === 0) globalThis.__crumb?.('frame ' + count + ' ' + fr.codedWidth + 'x' + fr.codedHeight + ' ' + fr.format + ' pending ' + pending + ' queue ' + queue.length + ' pos ' + Math.round(pos / 1e6) + 'MB');
       count++; if (total) onProgress(count / total); } catch (e) { failed = e; } finally { fr.close(); pending--; } } });
   let cfgPromise = null;
-  mp4.onError = e => { failed = new Error(e); };
+  mp4.onError = e => { failed = new Error(e); globalThis.__crumb?.('mp4 error ' + e); };
   mp4.onReady = inf => { track = inf.videoTracks[0]; if (!track) { failed = new Error('no video track'); return; } total = track.nb_samples;
     const fps = track.nb_samples / (track.movie_duration / track.movie_timescale || info.duration); stride = fps > 75 ? Math.round(fps / 60) : 1; info.fps = fps / stride;
     const m = track.matrix; let ang = m ? Math.round(Math.atan2(m[1], m[0]) * 180 / Math.PI) : 0; ang = ((ang % 360) + 360) % 360;
     const turned = (track.video.width > track.video.height) !== (W > H) && W !== H; rot = turned ? (ang === 270 ? 270 : 90) : (ang === 180 ? 180 : 0);
     const cfg = { codec: track.codec, codedWidth: track.video.width, codedHeight: track.video.height, description: description(mp4, track) };
-    cfgPromise = VideoDecoder.isConfigSupported(cfg).then(s => { if (!s.supported) throw new Error('codec'); dec.configure(cfg); mp4.setExtractionOptions(track.id, null, { nbSamples: 30 }); mp4.start(); ready = true; }); };
+    globalThis.__crumb?.('tracks ' + inf.tracks.map(t => t.codec).join(',') + ' video ' + track.video.width + 'x' + track.video.height + ' samples ' + total + ' fps ' + fps.toFixed(1) + ' rot ' + rot + ' brands ' + (inf.brands || []).join('/'));
+    cfgPromise = VideoDecoder.isConfigSupported(cfg).then(s => { globalThis.__crumb?.('codec supported ' + s.supported); if (!s.supported) throw new Error('codec'); dec.configure(cfg); mp4.setExtractionOptions(track.id, null, { nbSamples: 30 }); mp4.start(); ready = true; }); };
   let lastNo = -1; mp4.onSamples = (id, user, samples) => { for (const s of samples) { if (s.number <= lastNo) continue; lastNo = s.number; queue.push(new EncodedVideoChunk({ type: s.is_sync ? 'key' : 'delta', timestamp: Math.round(s.cts * 1e6 / s.timescale), duration: Math.round(s.duration * 1e6 / s.timescale), data: s.data })); } mp4.releaseUsedSamples(id, samples[samples.length - 1].number); };
-  const CH = 2 * 1024 * 1024; let pos = 0, jumped = false;
+  const CH = 2 * 1024 * 1024; let jumped = false;
   while (pos < file.size) { if (signal?.aborted) throw new Error('aborted'); if (failed) throw failed;
     const buf = await file.slice(pos, pos + CH).arrayBuffer(); buf.fileStart = pos; const next = mp4.appendBuffer(buf);
     if (cfgPromise) await cfgPromise;
