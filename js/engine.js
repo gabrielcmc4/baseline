@@ -115,15 +115,15 @@ export function calibrate(lines, W, H, init) {
       for (const q of lines[id]) { const u = cam.undist(q[0], q[1]); out.push(p[0] * (u[0] * l[0] + u[1] * l[1] + l[2]) / n); } }
     return out; };
   const M = Math.max(W, H); let best = null;
-  if (init) { const p0 = init.slice(); if (!useK) p0[1] = 0; best = lm(resid, p0, { lb: [0.15 * M, useK ? -0.4 : -1e-9, -9, -9, -9, -80, -80, -80], ub: [5 * M, useK ? 0.4 : 1e-9, 9, 9, 9, 80, 80, 80], nRobust: 1e9, fScale: 2, maxIter: 80 }); }
-  else for (const fr of [0.5, 0.75, 1.1]) for (const cxw of [-7, 0, 7]) for (const cyw of [-7, -3]) for (const czw of [1.5, 4]) {
+  if (init) { const p0 = init.slice(); if (!useK) p0[1] = 0; best = lm(resid, p0, { lb: [0.15 * M, useK ? -0.4 : -1e-9, -9, -9, -9, -200, -200, -200], ub: [8 * M, useK ? 0.4 : 1e-9, 9, 9, 9, 200, 200, 200], nRobust: 1e9, fScale: 2, maxIter: 80 }); }
+  else for (const [fr, cyw, czw] of [[0.5, -7, 1.5], [0.5, -3, 4], [0.75, -7, 1.5], [0.75, -7, 4], [1.1, -7, 4], [1.1, -3, 1.5], [1.6, -18, 8], [2.5, -30, 12]]) for (const cxw of [-7, 0, 7]) {
     const C = [cxw, cyw, czw], tgt = [0, 9, 0]; let z = tgt.map((v, i) => v - C[i]); let n = Math.hypot(...z); z = z.map(v => v / n);
     let x = [z[1], -z[0], 0]; n = Math.hypot(...x); x = x.map(v => v / n); // right = z cross up
     const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]]; // down
     const R = [...x, ...y, ...z], t = [0, 1, 2].map(i => -(R[i * 3] * C[0] + R[i * 3 + 1] * C[1] + R[i * 3 + 2] * C[2]));
     const p0 = [fr * M, 0, ...rotToVec(R), ...t];
-    const r = lm(resid, p0, { lb: [0.15 * M, useK ? -0.4 : -1e-9, -9, -9, -9, -80, -80, -80], ub: [5 * M, useK ? 0.4 : 1e-9, 9, 9, 9, 80, 80, 80], nRobust: 1e9, fScale: 2, maxIter: 80 });
-    const cam = new Camera(r.x, W, H); if (cam.C[2] < 0.3 || cam.C[2] > 25) continue;
+    const r = lm(resid, p0, { lb: [0.15 * M, useK ? -0.4 : -1e-9, -9, -9, -9, -200, -200, -200], ub: [8 * M, useK ? 0.4 : 1e-9, 9, 9, 9, 200, 200, 200], nRobust: 1e9, fScale: 2, maxIter: 80 });
+    const cam = new Camera(r.x, W, H); if (cam.C[2] < 0.3 || cam.C[2] > 45) continue;
     if (!best || r.cost < best.cost) best = r;
   }
   if (!best) return null;
@@ -138,11 +138,11 @@ export class Detector {
     this.W = W; this.H = H; this.cam = cam; this.s = Math.sqrt(W * H / (720 * 1280));
     this.cut = new Int32Array(W); this.tape = new Int32Array(W);
     for (let x = 0; x < W; x++) { // ignore the apron in front of the near baseline (shadows, feet)
-      let yb = H; const a = cam.project([-12, 0, 0]), b = cam.project([12, 0, 0]);
+      let yb = H; const a = cam.project([-14, -3.5, 0]), b = cam.project([14, -3.5, 0]);
       if (Math.abs(b[0] - a[0]) > 1) yb = a[1] + (x - a[0]) * (b[1] - a[1]) / (b[0] - a[0]);
       this.cut[x] = Math.max(0, Math.min(H - 2, Math.round(yb - 10 * this.s))); this.tape[x] = Math.round(cam.tapeY(x) + 20 * this.s);
     }
-    this.bufs = []; this.mask = new Uint8Array(W * H); this.n = 0; this.shift = [0, 0]; this.valid = true;
+    this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.n = 0; this.shift = [0, 0]; this.valid = true;
     this.ref = refPts || []; this.refScore = null; this.cw = Math.ceil(W / 4); this.ch = Math.ceil(H / 4); this.coarse = new Uint16Array(this.cw * this.ch);
   }
   _gray(rgba) { const W = this.W, H = this.H, g = new Uint8Array(W * H), t = new Uint8Array(W * H);
@@ -169,16 +169,21 @@ export class Detector {
         const j = o * 4, r = d[j], gg = d[j + 1], b = d[j + 2], mx = r > gg ? (r > b ? r : b) : (gg > b ? gg : b), mn = r < gg ? (r < b ? r : b) : (gg < b ? gg : b), df = mx - mn; if (mx < 100 || df === 0) continue;
         let h; if (mx === r) h = 30 * (gg - b) / df; else if (mx === gg) h = 60 + 30 * (b - r) / df; else h = 120 + 30 * (r - gg) / df; if (h < 0) h += 180;
         const sat = 255 * df / mx;
-        if ((h >= 20 && h <= 50 && sat >= 60) || (y < this.tape[x] && h >= 20 && h <= 80 && sat >= 30 && mx >= 185)) hits.push(o); } }
-    const out = { t: c.t, c: [], blobs: [], valid: c.valid };
+        let ok = (h >= 20 && h <= 50 && sat >= 60) || (y < this.tape[x] && h >= 20 && h <= 80 && sat >= 30 && mx >= 185);
+        let rel = false; if (!ok && d1 >= 30 && d2 >= 30) { const pd = p.rgba, nd = nx.rgba, yc = (r + gg) / 2 - b, yp = (pd[j] + pd[j + 1]) / 2 - pd[j + 2], yn = (nd[j] + nd[j + 1]) / 2 - nd[j + 2]; // more yellow-green than what was there before and after
+          rel = yc - (yp > yn ? yp : yn) >= 22 && gg - (pd[j + 1] > nd[j + 1] ? pd[j + 1] : nd[j + 1]) >= 8 && gg >= r - 25; }
+        if (ok) { hits.push(o); this.kind[o] = 1; } else if (rel) hits.push(o); } }
+    const out = { t: c.t, c: [], c2: [], blobs: [], valid: c.valid }; // c: blobs with clear ball colour; c2: also small blobs that only pass the weaker test
+    if (!(c.valid && hits.length < 4000)) for (const o of hits) this.kind[o] = 0;
     if (c.valid && hits.length < 4000) {
       for (const o of hits) { mask[o - W - 1] = mask[o - W] = mask[o - W + 1] = mask[o - 1] = mask[o] = mask[o + 1] = mask[o + W - 1] = mask[o + W] = mask[o + W + 1] = 1; }
       const stack = [], mxs = 45 * this.s, amax = 500 * this.s * this.s;
       for (const o0 of hits) for (const st of [o0 - W - 1, o0]) { if (mask[st] !== 1) continue; let a = 0, sx = 0, sy = 0, x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; stack.push(st); mask[st] = 2;
-        while (stack.length) { const o = stack.pop(), x = o % W, y = (o / W) | 0; a++; sx += x; sy += y; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        let strict = 0; while (stack.length) { const o = stack.pop(), x = o % W, y = (o / W) | 0; a++; sx += x; sy += y; strict += this.kind[o]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
           for (const q of [o - 1, o + 1, o - W, o + W, o - W - 1, o - W + 1, o + W - 1, o + W + 1]) if (q >= 0 && q < mask.length && mask[q] === 1) { mask[q] = 2; stack.push(q); } }
-        if (a >= 3 && a <= amax && x1 - x0 < mxs && y1 - y0 < mxs) out.c.push([sx / a - c.shift[0], sy / a - c.shift[1], a]); }
-      for (const o of hits) { mask[o - W - 1] = mask[o - W] = mask[o - W + 1] = mask[o - 1] = mask[o] = mask[o + 1] = mask[o + W - 1] = mask[o + W] = mask[o + W + 1] = 0; }
+        if (!strict && (x1 - x0 > 11 * this.s || y1 - y0 > 11 * this.s)) continue; // only a small blob may pass on the weaker colour test
+        if (a >= 3 && a <= amax && x1 - x0 < mxs && y1 - y0 < mxs) { const q = [sx / a - c.shift[0], sy / a - c.shift[1], a]; out.c2.push(q); if (strict) out.c.push(q); } }
+      for (const o of hits) { this.kind[o] = 0; mask[o - W - 1] = mask[o - W] = mask[o - W + 1] = mask[o - 1] = mask[o] = mask[o + 1] = mask[o + W - 1] = mask[o + W] = mask[o + W + 1] = 0; }
       // large moving blobs (players) on the coarse grid
       const ch = this.ch, seen = coarse; const minCells = 25;
       for (let i = 0; i < seen.length; i++) { if (seen[i] < 3 || seen[i] === 65535) continue; let a = 0, x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; stack.push(i); seen[i] = 65535;
@@ -258,7 +263,13 @@ function covariance(fit, fnOut, h) { // propagate fit covariance to derived quan
 
 // ---------- full analysis ----------
 // frames: [{t, c, blobs, valid}], mode: 'coach' | 'serve' | 'match'
-export function analyze(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd = 1.0, clSd = 0.2, zSd = 0.7, only = null } = {}) {
+// The ball is found with two colour tests. The strict one is clean when the ball is big and well lit; the weaker one is needed when the ball is
+// small or washed out (camera far away) but lets in more clutter. Both are analyzed and the one that yields more valid shots is kept.
+export function analyze(frames, cam, opts = {}) { const p = opts.onProgress, a = analyzeCore(frames, cam, { ...opts, onProgress: p && (v => p(v / 2)) });
+  if (opts.only || !frames.some(f => f.c2 && f.c2.length > f.c.length)) { a.meta.colour = 'strict'; return a; }
+  const b = analyzeCore(frames.map(f => ({ ...f, c: f.c2 || f.c })), cam, { ...opts, onProgress: p && (v => p(0.5 + v / 2)) });
+  if (b.length > a.length * 1.15 + 1) { b.meta.colour = 'weak'; b.meta.other = a.length; return b; } a.meta.colour = 'strict'; a.meta.other = b.length; return a; }
+function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd = 1.0, clSd = 0.2, zSd = 0.7, only = null } = {}) {
   const s = Math.sqrt(cam.W * cam.H / (720 * 1280)), H = cam.H, ts = frames.map(f => f.t);
   const fps = (frames.length - 1) / Math.max(1e-6, ts[ts.length - 1] - ts[0]), fs = 30 / fps; // pixel-per-frame thresholds were tuned at 30 fps
   const tracks = buildTracks(frames, s * Math.max(1, fs)); let segs = [];
@@ -319,7 +330,14 @@ export function analyze(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, 
 // Finds painted lines, groups them into "along the court" (meeting at a vanishing point) and "across the court",
 // then tries every way of naming them and keeps the naming under which the whole court drawing best lands on paint.
 // Assumes the camera looks down the court from behind one baseline. Returns {raw: {lineId: [[x,y],[x,y]]}, score} or null.
-export function autoCourt(img, dbg) {
+export function autoCourt(img, dbg) { const M = Math.max(img.width, img.height); if (M <= 2000) return autoCourtCore(img, dbg);
+  const k = Math.ceil(M / 960), w = Math.floor(img.width / k), h = Math.floor(img.height / k), small = new Uint8ClampedArray(w * h * 4), d = img.data; // box-average down, search there, then refit on the full frame
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let r = 0, g = 0, b = 0; for (let dy = 0; dy < k; dy++) for (let dx = 0; dx < k; dx++) { const j = ((y * k + dy) * img.width + x * k + dx) * 4; r += d[j]; g += d[j + 1]; b += d[j + 2]; } const o = (y * w + x) * 4, n = k * k; small[o] = r / n; small[o + 1] = g / n; small[o + 2] = b / n; small[o + 3] = 255; }
+  const r0 = autoCourtCore({ width: w, height: h, data: small }, dbg); if (!r0) return null; const s = Math.sqrt(img.width * img.height / (720 * 1280)), raw = {}, lines = {};
+  for (const id in r0.raw) { raw[id] = r0.raw[id].map(q => [q[0] * k + k / 2, q[1] * k + k / 2]); lines[id] = refineLine(img, raw[id][0], raw[id][1], 1.5 * s); }
+  const p0 = r0.cal.cam.p.slice(); p0[0] *= k; let cal = calibrate(lines, img.width, img.height, p0); if (!cal || cal.rms > 4 * s) cal = calibrate(lines, img.width, img.height); if (!cal || cal.rms > 4 * s) return null;
+  return { raw, lines, cal, n: Object.keys(lines).length }; }
+function autoCourtCore(img, dbg) {
   const W = img.width, H = img.height, d = img.data, s = Math.sqrt(W * H / (720 * 1280)), g = new Uint8Array(W * H), sat = new Uint8Array(W * H);
   for (let i = 0, j = 0; i < g.length; i++, j += 4) { const r = d[j], gg = d[j + 1], b = d[j + 2]; g[i] = (r * 77 + gg * 150 + b * 29) >> 8; sat[i] = Math.max(r, gg, b) - Math.min(r, gg, b); }
   const mask = new Uint8Array(W * H), ws = [Math.max(2, Math.round(3 * s)), Math.max(4, Math.round(8 * s))], pts = [];
@@ -366,36 +384,41 @@ export function autoCourt(img, dbg) {
     const im = [X(along[i], across[p]), X(along[j], across[p]), X(along[i], across[q]), X(along[j], across[q])]; if (im.some(v => !v)) continue;
     for (let a = 0; a < 5; a++) for (let b = a + 1; b < 5; b++) for (let c = 0; c < 4; c++) for (let e = c + 1; e < 4; e++) {
       const h = homog([[AX[a], CY[c]], [AX[b], CY[c]], [AX[a], CY[e]], [AX[b], CY[e]]], im); if (!h) continue;
-      { // the camera this naming implies must be a believable one: sane lens, 0.8-15 m high, behind the near baseline
-        const u1 = [h[0] - W / 2 * h[6], h[3] - H / 2 * h[6], h[6]], u2 = [h[1] - W / 2 * h[7], h[4] - H / 2 * h[7], h[7]], u3 = [h[2] - W / 2, h[5] - H / 2, 1], den = u1[2] * u2[2]; if (Math.abs(den) < 1e-12) continue;
-        const f2 = -(u1[0] * u2[0] + u1[1] * u2[1]) / den, M = Math.max(W, H); if (!(f2 > (0.35 * M) ** 2 && f2 < (3 * M) ** 2)) continue; const f = Math.sqrt(f2), k = v => [v[0] / f, v[1] / f, v[2]];
-        const r1 = k(u1), r2 = k(u2), t = k(u3), n1 = Math.hypot(...r1), n2 = Math.hypot(...r2); if (n1 / n2 < 0.75 || n1 / n2 > 1.33) continue; const lam = (n1 + n2) / 2;
-        const r3 = [r1[1] * r2[2] - r1[2] * r2[1], r1[2] * r2[0] - r1[0] * r2[2], r1[0] * r2[1] - r1[1] * r2[0]].map(v => v / (n1 * n2)), dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
-        const Cx = -dot(r1, t) / (n1 * lam), Cy = -dot(r2, t) / (n2 * lam), Cz = Math.abs(dot(r3, t) / lam); if (Cz < 0.8 || Cz > 15 || Cy > 2 || Cy < -40 || Math.abs(Cx) > 15) continue; }
+      let plaus = false;
+      { // the camera this naming implies must be a believable one (skipped for long lenses, where this quick estimate is unreliable)
+        const u1 = [h[0] - W / 2 * h[6], h[3] - H / 2 * h[6], h[6]], u2 = [h[1] - W / 2 * h[7], h[4] - H / 2 * h[7], h[7]], u3 = [h[2] - W / 2, h[5] - H / 2, 1], den = u1[2] * u2[2], M = Math.max(W, H);
+        const f2 = Math.abs(den) < 1e-14 ? Infinity : -(u1[0] * u2[0] + u1[1] * u2[1]) / den;
+        if (f2 > 0 && f2 < (0.35 * M) ** 2) continue;
+        if (f2 > 0 && f2 < (2.2 * M) ** 2) { const f = Math.sqrt(f2), k = v => [v[0] / f, v[1] / f, v[2]];
+          const r1 = k(u1), r2 = k(u2), t = k(u3), n1 = Math.hypot(...r1), n2 = Math.hypot(...r2); if (n1 / n2 < 0.75 || n1 / n2 > 1.33) continue; const lam = (n1 + n2) / 2;
+          const r3 = [r1[1] * r2[2] - r1[2] * r2[1], r1[2] * r2[0] - r1[0] * r2[2], r1[0] * r2[1] - r1[1] * r2[0]].map(v => v / (n1 * n2)), dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+          const Cx = -dot(r1, t) / (n1 * lam), Cy = -dot(r2, t) / (n2 * lam), Cz = Math.abs(dot(r3, t) / lam); if (Cz < 0.8 || Cz > 40 || Cy > 2 || Cy < -120 || Math.abs(Cx) > 30) continue; plaus = Math.abs(Cx) < 12; } }
       let score = 0, vis = 0, usedL = 0, x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; const per = {};
       for (const [id, [A, B]] of segs) { let hit = 0, n = 0, first = null, last = null; for (let k = 0; k <= NS; k++) { const P = pr(h, A[0] + (B[0] - A[0]) * k / NS, A[1] + (B[1] - A[1]) * k / NS); if (P[2] <= 0) continue; const x = Math.round(P[0]), y = Math.round(P[1]); if (x < 4 || y < 4 || x >= W - 4 || y >= H - 4) continue; n++; if (!first) first = P; last = P; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (dil[y * W + x]) hit++; }
         vis += n; score += hit - 0.7 * (n - hit); per[id] = { hit, n, first, last };
         if (n >= 6 && hit / n >= 0.5) { const dx = last[0] - first[0], dy = last[1] - first[1], L = Math.hypot(dx, dy); if (L > 20 * s) { const mx = (first[0] + last[0]) / 2, my = (first[1] + last[1]) / 2;
           for (let q = 0; q < lines.length; q++) { const l = lines[q]; if (usedL & (1 << q)) continue; if (Math.abs(l[0] * dx + l[1] * dy) / L < 0.05 && Math.abs(l[0] * mx + l[1] * my + l[2]) < 5 * s) { usedL |= 1 << q; score += 1000; per[id].m = true; break; } } } } }
       if (vis < 3 * NS || x1 - x0 < 0.3 * W || y1 - y0 < 0.12 * H) continue; // too little of the court in view to trust
+      if (plaus) score += 1500; // a quick camera estimate that makes sense counts for more than one extra matched line
       if (!best || score > best.score) best = { score, per, vis }; if (score > 4000) { tops.push({ score, per, vis }); if (tops.length > 400) { tops.sort((u, v) => v.score - u.score); tops.length = 40; } } } }
   }
   if (dbg) dbg.best = best && [best.score, best.vis];
   if (!best || best.score < 4000) return null;
   // check the most promising namings with the full camera fit and keep the one that explains the most lines well
   tops.sort((u, v) => v.score - u.score); let pick = null; const seen = new Set();
-  for (const hyp of tops) { if (seen.size >= 6) break; const raw = {};
+  for (const hyp of tops) { if (seen.size >= 14 || (pick && pick.n >= 6)) break; const raw = {};
     for (const id in hyp.per) { const q = hyp.per[id]; if (q.m && !id.startsWith('far') && q.n >= 6 && q.hit / q.n >= 0.5 && Math.hypot(q.first[0] - q.last[0], q.first[1] - q.last[1]) > 30 * s) raw[id] = [[q.first[0], q.first[1]], [q.last[0], q.last[1]]]; }
     const key = Object.keys(raw).map(id => id + Math.round(raw[id][0][1] / 20)).join(); if (seen.has(key) || Object.keys(raw).length < 4) continue; seen.add(key);
     let lines = {}; for (const id in raw) lines[id] = refineLine(img, raw[id][0], raw[id][1], s); let cal = calibrate(lines, W, H); if (!cal) continue;
     const bad = Object.keys(cal.perLine).filter(id => cal.perLine[id] > 4 * s); if (bad.length && Object.keys(lines).length - bad.length >= 4) { for (const id of bad) { delete lines[id]; delete raw[id]; } cal = calibrate(lines, W, H); if (!cal) continue; }
     // grow: look for paint where the fitted camera says the remaining lines should be, and refit with whatever is found
     for (let round = 0; round < 3 && cal.rms <= 3 * s; round++) { let added = 0;
-      for (const [id, [A, B]] of segs) { if (lines[id] || id.startsWith('far')) continue; let first = null, last = null; for (let k = 0; k <= 60; k++) { const P = [A[0] + (B[0] - A[0]) * k / 60, A[1] + (B[1] - A[1]) * k / 60, 0]; if (cal.cam.norm(P)[2] < 0.1) continue; const q = cal.cam.project(P); if (q[0] < 6 || q[1] < 6 || q[0] > W - 6 || q[1] > H - 6) continue; if (!first) first = q; last = q; }
+      for (const [id, [A, B]] of segs) { if (lines[id] || (id.startsWith('far') && round === 0)) continue; let first = null, last = null; for (let k = 0; k <= 60; k++) { const P = [A[0] + (B[0] - A[0]) * k / 60, A[1] + (B[1] - A[1]) * k / 60, 0]; if (cal.cam.norm(P)[2] < 0.1) continue; const q = cal.cam.project(P); if (q[0] < 6 || q[1] < 6 || q[0] > W - 6 || q[1] > H - 6) continue; if (!first) first = q; last = q; }
         if (!first) continue; const L = Math.hypot(first[0] - last[0], first[1] - last[1]); if (L < 40 * s) continue; const got = refineLine(img, first, last, 2 * s), want = Math.max(8, Math.min(120, Math.round(L / 4))) + 1;
+        if (id.startsWith('far')) { let dd = 0; for (const q of got) dd += Math.abs(q[1] - cal.cam.tapeY(q[0])); if (dd / got.length < 7 * s) continue; } // that is the net tape, not a line on the ground
         if (got.length >= 0.6 * want) { const trial = { ...lines, [id]: got }, c2 = calibrate(trial, W, H, cal.cam.p); if (c2 && c2.rms <= Math.max(2 * s, 1.3 * cal.rms) && c2.perLine[id] <= 2.5 * s) { lines = trial; raw[id] = [first, last]; cal = c2; added++; } } }
       if (!added) break; }
-    const n = Object.keys(lines).length, C = cal.cam.C; if (dbg) (dbg.tried = dbg.tried || []).push([Object.keys(lines).join('+'), +cal.rms.toFixed(1), C.map(v => +v.toFixed(1)), +hyp.score.toFixed(0)]); if (cal.rms > 3 * s || C[2] < 0.8 || C[2] > 15 || C[1] > 2 || !Object.keys(lines).some(id => MODEL_LINES[id][0][0] === MODEL_LINES[id][1][0]) || !Object.keys(lines).some(id => MODEL_LINES[id][0][1] === MODEL_LINES[id][1][1])) continue;
+    const n = Object.keys(lines).length, C = cal.cam.C; if (dbg) (dbg.tried = dbg.tried || []).push([Object.keys(lines).join('+'), +cal.rms.toFixed(1), C.map(v => +v.toFixed(1)), +hyp.score.toFixed(0)]); if (cal.rms > 3 * s || C[2] < 0.8 || C[2] > 40 || C[1] > 2 || !Object.keys(lines).some(id => MODEL_LINES[id][0][0] === MODEL_LINES[id][1][0]) || !Object.keys(lines).some(id => MODEL_LINES[id][0][1] === MODEL_LINES[id][1][1])) continue;
     if (n < 5) continue;
     if (!pick || n > pick.n || (n === pick.n && cal.rms < pick.cal.rms)) pick = { raw, lines, cal, n }; }
   return pick;

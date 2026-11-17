@@ -1,0 +1,7 @@
+import { execFileSync } from 'node:child_process'; import fs from 'node:fs'; import { Camera, MODEL_LINES, COURT } from '../js/engine.js';
+const [video, t, out] = process.argv.slice(2), name = video.split('/').pop(), c = JSON.parse(fs.readFileSync(`/home/claude/tv/${name}.cam.json`)), cam = new Camera(c.p, c.W, c.H);
+const segs = []; for (const id in MODEL_LINES) { const [A, B] = MODEL_LINES[id]; let prev = null; for (let i = 0; i <= 30; i++) { const P = A.map((a, k) => a + (B[k] - a) * i / 30); if (cam.norm(P)[2] < 0.1) { prev = null; continue; } const q = cam.project(P); if (prev) segs.push([prev, q, c.lines[id] ? 'lime' : 'red']); prev = q; } }
+const draw = segs.filter(s => s.flat().slice(0, 4).every(v => isFinite(v) && Math.abs(v) < 5000)).map(([a, b, col]) => `drawline=x1=${a[0].toFixed(0)}:y1=${a[1].toFixed(0)}:x2=${b[0].toFixed(0)}:y2=${b[1].toFixed(0)}:color=${col}:thickness=2`);
+// ffmpeg has no drawline; emit an SVG overlay instead
+const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${c.W}" height="${c.H}">` + segs.map(([a, b, col]) => `<line x1="${a[0].toFixed(1)}" y1="${a[1].toFixed(1)}" x2="${b[0].toFixed(1)}" y2="${b[1].toFixed(1)}" stroke="${col}" stroke-width="2"/>`).join('') + '</svg>';
+fs.writeFileSync('/tmp/ov.svg', svg); execFileSync('ffmpeg', ['-v', 'error', '-y', '-ss', t, '-i', video, '-frames:v', '1', '-vf', `scale=${c.W}:${c.H}`, '/tmp/fr.png']);
