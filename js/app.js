@@ -15,20 +15,23 @@ function refreshDynamic() { drawMini(); if (S.shots.length && !$('s4').hidden) r
 $('pick').onclick = () => $('file').click(); $('file').onchange = e => e.target.files[0] && openFile(e.target.files[0]);
 const drop = $('drop'); ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); })); ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', e => e.dataTransfer.files[0] && openFile(e.dataTransfer.files[0]));
-async function openFile(file) { $('err1').hidden = true; S.mode = document.querySelector('input[name=mode]:checked').value;
+// breadcrumbs kept in this browser only, so that after a tab crash it is possible to see how far the app got
+try { const c = localStorage.getItem('baseline.crumbs'); if (c) localStorage.setItem('baseline.crumbsPrev', c); localStorage.removeItem('baseline.crumbs'); } catch (e) {}
+function crumb(m) { try { const a = JSON.parse(localStorage.getItem('baseline.crumbs') || '[]'); a.push(new Date().toISOString().slice(11, 19) + ' ' + m + (performance.memory ? ' mem ' + Math.round(performance.memory.usedJSHeapSize / 1e6) : '')); localStorage.setItem('baseline.crumbs', JSON.stringify(a.slice(-60))); } catch (e) {} }
+async function openFile(file) { crumb('open size ' + file.size + ' type ' + file.type); $('err1').hidden = true; S.mode = document.querySelector('input[name=mode]:checked').value;
   S.autoToken = null; if (S.info && S.info.video) { const old = S.info.video, u = old.src; try { old.pause(); old.removeAttribute('src'); old.load(); URL.revokeObjectURL(u); } catch (e) {} S.info = null; S.img = null; } // let go of the previous video: two multi-gigabyte files at once can exhaust the tab's memory
-  try { S.info = await probe(file); S.file = file; S.lines = {}; S.raw = {}; S.pending = []; S.cal = null; S.active = 'baseline'; $('go').disabled = true; $('calMsg').textContent = ''; step(2); await loadFrame(); autoFind(); }
+  try { S.info = await probe(file); crumb('probe ' + S.info.video.videoWidth + 'x' + S.info.video.videoHeight + ' -> ' + S.info.W + 'x' + S.info.H + ' dur ' + Math.round(S.info.duration)); S.file = file; S.lines = {}; S.raw = {}; S.pending = []; S.cal = null; S.active = 'baseline'; $('go').disabled = true; $('calMsg').textContent = ''; step(2); await loadFrame(); crumb('first frame shown'); autoFind(); }
   catch (e) { console.error(e); $('err1').textContent = t('errVideo'); $('err1').hidden = false; } }
 
 // ---- step 2: the app proposes the court, the user confirms or corrects
 function courtWorker(img, grow) { return new Promise(res => { const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); const done = v => { w.terminate(); res(v); }; w.onmessage = e => done(e.data.court || null); w.onerror = () => done(null); setTimeout(() => done(null), 45000); w.postMessage({ court: { width: img.width, height: img.height, data: img.data }, grow }); }); }
 async function autoFind() { const token = S.autoToken = {}, msg = $('calMsg'); msg.className = 'msg'; msg.textContent = t('autoLooking'); let best = null;
   const seen = [];
-  for (const pos of [80, 300, 550, 800]) { let img; try { img = await grabFrame(S.info, S.info.duration * pos / 1000); } catch (e) { continue; } seen.push(img); const r = await courtWorker(img); if (S.autoToken !== token) return;
+  for (const pos of [80, 300, 550, 800]) { let img; crumb('grab ' + pos); try { img = await grabFrame(S.info, S.info.duration * pos / 1000); } catch (e) { crumb('grab failed'); continue; } seen.push(img); crumb('court search'); const r = await courtWorker(img); crumb('court ' + (r ? r.n : 'none')); if (S.autoToken !== token) return;
     if (r && (!best || r.n > best.r.n)) best = { r, img, pos }; if (best && best.r.n >= 6) break; }
   if (best) { if (seen.length < 3) for (const pos of [550, 800]) { try { seen.push(await grabFrame(S.info, S.info.duration * pos / 1000)); } catch (e) {} } // lines hidden in one frame are often visible in another
     for (const img of seen) { if (img === best.img) continue; const r = await courtWorker(img, best.r); if (S.autoToken !== token) return; if (r && r.n > best.r.n) best.r = r; } }
-  if (S.autoToken !== token) return; S.autoToken = null; window.__baselineAuto = best ? best.r.n : 0;
+  if (S.autoToken !== token) return; crumb('auto done'); S.autoToken = null; window.__baselineAuto = best ? best.r.n : 0;
   if (!best) { msg.textContent = t('autoNone'); msg.classList.add('bad'); S.img = await grabFrame(S.info, S.info.duration * $('seek').value / 1000); drawFrame(); return; }
   S.img = best.img; $('seek').value = best.pos; S.raw = best.r.raw; S.lines = best.r.lines; S.pending = []; S.active = null; S.cal = { cam: new Camera(best.r.camP, S.info.W, S.info.H), rms: best.r.rms, perLine: best.r.perLine };
   msg.textContent = t('autoFound', { n: best.r.n }) + ' ' + t('camInfo', { h: num(S.cal.cam.C[2], 1), d: num(-S.cal.cam.C[1], 1) }); msg.classList.add('good'); $('go').disabled = false; drawFrame(); drawMini(); }
@@ -64,17 +67,17 @@ $('check').onclick = () => { const msg = $('calMsg'); msg.className = 'msg'; con
 
 // ---- step 3: analysis
 $('go').onclick = run; $('cancel').onclick = () => { S.abort?.abort(); step(2); };
-async function run() { step(3); const { W, H } = S.info, cam = S.cal.cam, det = new Detector(W, H, cam, Object.values(S.lines).flat()), frames = [], pv = $('preview'), px = pv.getContext('2d'); pv.width = W; pv.height = H;
+async function run() { crumb('run mode ' + S.mode); step(3); const { W, H } = S.info, cam = S.cal.cam, det = new Detector(W, H, cam, Object.values(S.lines).flat()), frames = [], pv = $('preview'), px = pv.getContext('2d'); pv.width = W; pv.height = H;
   S.abort = new AbortController(); $('stage').textContent = t('reading'); $('eta').textContent = ''; const bar = $('bar'), start = performance.now(); let k = 0, lastP = 0;
   S.info.video.pause(); S.slow = !(window.VideoDecoder && /\.(mp4|mov|m4v)$/i.test(S.file.name));
   try { const r = await decodeAll(S.file, S.info, (im, tm) => { const f = det.push(im.data, tm); if (f) frames.push(f); if (++k % 20 === 0) { px.putImageData(im, 0, 0); if (f) { px.strokeStyle = '#cbe33a'; px.lineWidth = 3; for (const c of f.c) { px.beginPath(); px.arc(c[0], c[1], 14, 0, 7); px.stroke(); } } } },
-      p => { if (p - lastP > 0.004) { lastP = p; bar.style.width = (p * 90).toFixed(1) + '%'; const el = (performance.now() - start) / 1000; if (p > 0.03) $('eta').textContent = '~' + fmtTime(el / p * (1 - p)) + ' min'; if (S.slow) $('eta').textContent = t('slowPath') + ' ' + $('eta').textContent; } }, S.abort.signal);
-    $('stage').textContent = t('fitting'); $('eta').textContent = '';
+      p => { if (Math.floor(p * 20) > Math.floor(lastP * 20)) crumb('decode ' + Math.round(p * 100) + '% frames ' + frames.length); if (p - lastP > 0.004) { lastP = p; bar.style.width = (p * 90).toFixed(1) + '%'; const el = (performance.now() - start) / 1000; if (p > 0.03) $('eta').textContent = '~' + fmtTime(el / p * (1 - p)) + ' min'; if (S.slow) $('eta').textContent = t('slowPath') + ' ' + $('eta').textContent; } }, S.abort.signal);
+    crumb('fitting, fast ' + r.fast + ' frames ' + frames.length); $('stage').textContent = t('fitting'); $('eta').textContent = '';
     S.shots = await new Promise((res, rej) => { const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); w.onmessage = e => { if (e.data.progress != null) bar.style.width = (90 + e.data.progress * 10).toFixed(1) + '%'; if (e.data.shots) { w.terminate(); S.meta = e.data.meta; res(e.data.shots); } if (e.data.error) { w.terminate(); rej(new Error(e.data.error)); } }; w.onerror = e => rej(new Error(e.message)); S.abort.signal.addEventListener('abort', () => { w.terminate(); rej(new Error('aborted')); });
       w.postMessage({ frames, camP: cam.p, W, H, mode: S.mode }); });
     window.__baseline = { shots: S.shots, frames: frames.length, seconds: (performance.now() - start) / 1000, fast: r.fast };
-    S.sel = null; S.view = 'me'; S.saved = false; S.fromHistory = false; S.sid = sessionId(S.file); $('sdate').value = fileDate(S.file); step(4); renderReport(); if (currentUser()) save();
-  } catch (e) { if (e.message === 'aborted') return; console.error(e); step(2); const m = $('calMsg'); m.className = 'msg bad'; m.textContent = t('errAnalyze', { e: e.message }); }
+    crumb('shots ' + S.shots.length); S.sel = null; S.view = 'me'; S.saved = false; S.fromHistory = false; S.sid = sessionId(S.file); $('sdate').value = fileDate(S.file); step(4); renderReport(); if (currentUser()) save();
+  } catch (e) { if (e.message === 'aborted') return; console.error(e); crumb('error ' + e.message); step(2); const m = $('calMsg'); m.className = 'msg bad'; m.textContent = t('errAnalyze', { e: e.message }); }
 }
 
 // ---- step 4: report
