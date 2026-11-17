@@ -1,5 +1,5 @@
 import { t, setLang, apply, getLang, num } from './i18n.js';
-import { calibrate, refineLine, Detector, MODEL_LINES, COURT } from './engine.js';
+import { calibrate, refineLine, Detector, MODEL_LINES, COURT, Camera } from './engine.js';
 import { probe, grabFrame, decodeAll } from './decode.js';
 import { topView, sideView, fmtTime, resLabel, spinKind } from './report.js';
 const $ = id => document.getElementById(id);
@@ -14,21 +14,30 @@ $('pick').onclick = () => $('file').click(); $('file').onchange = e => e.target.
 const drop = $('drop'); ['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('over'); })); ['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('over'); }));
 drop.addEventListener('drop', e => e.dataTransfer.files[0] && openFile(e.dataTransfer.files[0]));
 async function openFile(file) { $('err1').hidden = true; S.mode = document.querySelector('input[name=mode]:checked').value;
-  try { S.info = await probe(file); S.file = file; S.lines = {}; S.raw = {}; S.pending = []; S.cal = null; S.active = 'baseline'; $('go').disabled = true; $('calMsg').textContent = ''; step(2); await loadFrame(); }
+  try { S.info = await probe(file); S.file = file; S.lines = {}; S.raw = {}; S.pending = []; S.cal = null; S.active = 'baseline'; $('go').disabled = true; $('calMsg').textContent = ''; step(2); await loadFrame(); autoFind(); }
   catch (e) { console.error(e); $('err1').textContent = t('errVideo'); $('err1').hidden = false; } }
 
+// ---- step 2: the app proposes the court, the user confirms or corrects
+function courtWorker(img) { return new Promise(res => { const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); const done = v => { w.terminate(); res(v); }; w.onmessage = e => done(e.data.court || null); w.onerror = () => done(null); setTimeout(() => done(null), 45000); w.postMessage({ court: { width: img.width, height: img.height, data: img.data } }); }); }
+async function autoFind() { const token = S.autoToken = {}, msg = $('calMsg'); msg.className = 'msg'; msg.textContent = t('autoLooking'); let best = null;
+  for (const pos of [80, 300, 550, 800]) { let img; try { img = await grabFrame(S.info, S.info.duration * pos / 1000); } catch (e) { continue; } const r = await courtWorker(img); if (S.autoToken !== token) return;
+    if (r && (!best || r.n > best.r.n)) best = { r, img, pos }; if (best && best.r.n >= 6) break; }
+  if (S.autoToken !== token) return; S.autoToken = null; window.__baselineAuto = best ? best.r.n : 0;
+  if (!best) { msg.textContent = t('autoNone'); msg.classList.add('bad'); S.img = await grabFrame(S.info, S.info.duration * $('seek').value / 1000); drawFrame(); return; }
+  S.img = best.img; $('seek').value = best.pos; S.raw = best.r.raw; S.lines = best.r.lines; S.pending = []; S.active = null; S.cal = { cam: new Camera(best.r.camP, S.info.W, S.info.H), rms: best.r.rms, perLine: best.r.perLine };
+  msg.textContent = t('autoFound', { n: best.r.n }) + ' ' + t('camInfo', { h: num(S.cal.cam.C[2], 1), d: num(-S.cal.cam.C[1], 1) }); msg.classList.add('good'); $('go').disabled = false; drawFrame(); drawMini(); }
 // ---- step 2: court marking
 const cv = $('frame'), cx = cv.getContext('2d');
 async function loadFrame() { S.img = await grabFrame(S.info, S.info.duration * $('seek').value / 1000); cv.width = S.info.W; cv.height = S.info.H; for (const id in S.raw) S.lines[id] = refineLine(S.img, S.raw[id][0], S.raw[id][1], 1.6 * scale()); drawFrame(); drawMini(); }
 const scale = () => Math.sqrt(S.info.W * S.info.H / (720 * 1280));
-$('seek').onchange = loadFrame;
+$('seek').onchange = () => { S.autoToken = null; loadFrame(); };
 function drawFrame() { cx.putImageData(S.img, 0, 0); const s = scale(); cx.lineWidth = 3 * s;
   if (S.cal) { cx.strokeStyle = '#cbe33a'; cx.lineWidth = 2.5 * s; const cam = S.cal.cam; const seg = (A, B) => { cx.beginPath(); let on = false; for (let i = 0; i <= 40; i++) { const P = A.map((a, k) => a + (B[k] - a) * i / 40); if (cam.norm(P)[2] < 0.1) { on = false; continue; } const q = cam.project(P); on ? cx.lineTo(q[0], q[1]) : cx.moveTo(q[0], q[1]); on = true; } cx.stroke(); };
     for (const id in MODEL_LINES) seg(...MODEL_LINES[id]); for (let i = 0; i < 16; i++) { const a = -6.4 + i * 0.8, h = x => COURT.NET_C + (COURT.NET_P - COURT.NET_C) * (Math.abs(x) / 6.4) ** 2; seg([a, COURT.NET, h(a)], [a + 0.8, COURT.NET, h(a + 0.8)]); } }
   for (const id in S.raw) { const [a, b] = S.raw[id]; cx.strokeStyle = id === S.active ? '#fff' : 'rgba(255,255,255,.55)'; cx.lineWidth = 2 * s; cx.beginPath(); cx.moveTo(a[0], a[1]); cx.lineTo(b[0], b[1]); cx.stroke(); for (const p of [a, b]) dot(p, '#2b1d15'); }
   for (const p of S.pending) dot(p, '#cbe33a'); }
 function dot(p, c) { const s = scale(); cx.beginPath(); cx.arc(p[0], p[1], 6 * s, 0, 7); cx.fillStyle = c; cx.fill(); cx.lineWidth = 2 * s; cx.strokeStyle = '#fff'; cx.stroke(); }
-cv.addEventListener('pointerdown', e => { if (!S.active) return; const r = cv.getBoundingClientRect(); const p = [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; S.pending.push(p);
+cv.addEventListener('pointerdown', e => { if (!S.active) return; if (S.autoToken) { S.autoToken = null; $('calMsg').textContent = ''; } const r = cv.getBoundingClientRect(); const p = [(e.clientX - r.left) * cv.width / r.width, (e.clientY - r.top) * cv.height / r.height]; S.pending.push(p);
   if (S.pending.length === 2) { S.raw[S.active] = S.pending; S.lines[S.active] = refineLine(S.img, S.pending[0], S.pending[1], 1.6 * scale()); S.pending = []; S.cal = null; $('go').disabled = true; nextLine(); }
   drawFrame(); drawMini(); });
 function nextLine() { const i = ORDER.indexOf(S.active); for (let k = 1; k <= ORDER.length; k++) { const id = ORDER[(i + k) % ORDER.length]; if (!S.raw[id]) { S.active = id; return; } } S.active = null; }
@@ -89,6 +98,6 @@ $('csv').onclick = () => { const rows = [['time_s', 'type', 'result', 'speed_kmh
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' })); a.download = 'baseline-shots.csv'; a.click(); };
 $('print').onclick = () => window.print(); $('again').onclick = () => { if (S.url) URL.revokeObjectURL(S.url); S.url = null; S.shots = []; $('file').value = ''; step(1); };
 // test hook: lets an automated check supply court lines without tapping
-window.__baselineSetLines = raw => { S.raw = raw; S.lines = {}; for (const id in raw) S.lines[id] = refineLine(S.img, raw[id][0], raw[id][1], 1.6 * scale()); S.active = null; drawFrame(); drawMini(); };
+window.__baselineSetLines = raw => { S.autoToken = null; S.raw = raw; S.lines = {}; for (const id in raw) S.lines[id] = refineLine(S.img, raw[id][0], raw[id][1], 1.6 * scale()); S.active = null; drawFrame(); drawMini(); };
 if (window.self !== window.top) { $('csv').hidden = true; $('print').hidden = true; } // embedded previews block downloads and printing
 setLang(getLang()); step(1); drawMini();

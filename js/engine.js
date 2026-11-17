@@ -104,7 +104,7 @@ export function refineLine(img, a, b, s = 1) {
 }
 
 // lines: {id: [[x,y],...points on that line]}  ->  {cam, rms, perLine}
-export function calibrate(lines, W, H) {
+export function calibrate(lines, W, H, init) {
   const ids = Object.keys(lines).filter(k => MODEL_LINES[k] && lines[k].length >= 2);
   if (ids.length < 4) return null;
   const cx = W / 2, cy = H / 2, useK = ids.length >= 6;
@@ -115,7 +115,8 @@ export function calibrate(lines, W, H) {
       for (const q of lines[id]) { const u = cam.undist(q[0], q[1]); out.push(p[0] * (u[0] * l[0] + u[1] * l[1] + l[2]) / n); } }
     return out; };
   const M = Math.max(W, H); let best = null;
-  for (const fr of [0.5, 0.75, 1.1]) for (const cxw of [-7, 0, 7]) for (const cyw of [-7, -3]) for (const czw of [1.5, 4]) {
+  if (init) { const p0 = init.slice(); if (!useK) p0[1] = 0; best = lm(resid, p0, { lb: [0.15 * M, useK ? -0.4 : -1e-9, -9, -9, -9, -80, -80, -80], ub: [5 * M, useK ? 0.4 : 1e-9, 9, 9, 9, 80, 80, 80], nRobust: 1e9, fScale: 2, maxIter: 80 }); }
+  else for (const fr of [0.5, 0.75, 1.1]) for (const cxw of [-7, 0, 7]) for (const cyw of [-7, -3]) for (const czw of [1.5, 4]) {
     const C = [cxw, cyw, czw], tgt = [0, 9, 0]; let z = tgt.map((v, i) => v - C[i]); let n = Math.hypot(...z); z = z.map(v => v / n);
     let x = [z[1], -z[0], 0]; n = Math.hypot(...x); x = x.map(v => v / n); // right = z cross up
     const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]]; // down
@@ -312,4 +313,90 @@ export function analyze(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, 
       path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv });
   });
   shots.sort((a, b) => a.t - b.t); shots.meta = meta; return shots;
+}
+
+// ---------- automatic court finder ----------
+// Finds painted lines, groups them into "along the court" (meeting at a vanishing point) and "across the court",
+// then tries every way of naming them and keeps the naming under which the whole court drawing best lands on paint.
+// Assumes the camera looks down the court from behind one baseline. Returns {raw: {lineId: [[x,y],[x,y]]}, score} or null.
+export function autoCourt(img, dbg) {
+  const W = img.width, H = img.height, d = img.data, s = Math.sqrt(W * H / (720 * 1280)), g = new Uint8Array(W * H), sat = new Uint8Array(W * H);
+  for (let i = 0, j = 0; i < g.length; i++, j += 4) { const r = d[j], gg = d[j + 1], b = d[j + 2]; g[i] = (r * 77 + gg * 150 + b * 29) >> 8; sat[i] = Math.max(r, gg, b) - Math.min(r, gg, b); }
+  const mask = new Uint8Array(W * H), ws = [Math.max(2, Math.round(3 * s)), Math.max(4, Math.round(8 * s))], pts = [];
+  for (let y = 10; y < H - 10; y++) for (let x = 10; x < W - 10; x++) { const o = y * W + x, v = g[o]; if (v < 70) continue; let on = false; const st = sat[o];
+    for (const w of ws) { if ((v - Math.max(g[o - w], g[o + w]) > 18 && (st <= 70 || st < Math.min(sat[o - w], sat[o + w]) - 25)) || (v - Math.max(g[o - w * W], g[o + w * W]) > 18 && (st <= 70 || st < Math.min(sat[o - w * W], sat[o + w * W]) - 25))) { on = true; break; } } if (on) { mask[o] = 1; pts.push(o); } }
+  if (dbg) dbg.pts = pts.length;
+  if (pts.length < 200 || pts.length > 0.2 * W * H) return null;
+  // Hough transform
+  const NT = 180, RS = 2, diag = Math.hypot(W, H), NR = Math.ceil(2 * diag / RS) + 1, acc = new Int32Array(NT * NR), cs = [], sn = [];
+  for (let t = 0; t < NT; t++) { cs.push(Math.cos(t * Math.PI / NT)); sn.push(Math.sin(t * Math.PI / NT)); }
+  for (const o of pts) { const x = o % W, y = (o / W) | 0; for (let t = 0; t < NT; t++) acc[t * NR + Math.round((x * cs[t] + y * sn[t] + diag) / RS)]++; }
+  const peaks = []; const thr = 55 * s;
+  for (let k = 0; k < 18; k++) { let best = 0, bi = -1; for (let i = 0; i < acc.length; i++) if (acc[i] > best) { best = acc[i]; bi = i; } if (best < thr) break; const t = (bi / NR) | 0, r = bi % NR; peaks.push([t, r, best]);
+    for (let dt = -5; dt <= 5; dt++) { let tt = t + dt, rr0 = r; if (tt < 0) { tt += NT; rr0 = NR - 1 - r; } else if (tt >= NT) { tt -= NT; rr0 = NR - 1 - r; } for (let dr = -9; dr <= 9; dr++) { const rr = rr0 + dr; if (rr >= 0 && rr < NR) acc[tt * NR + rr] = 0; } } }
+  // refine each peak to a line a*x+b*y+c=0 from nearby paint pixels
+  const lines = [];
+  for (const [t, r, votes] of peaks) { let a = cs[t], b = sn[t], c = -(r * RS - diag);
+    for (let it = 0; it < 2; it++) { let n = 0, sx = 0, sy = 0, sxx = 0, sxy = 0, syy = 0; for (const o of pts) { const x = o % W, y = (o / W) | 0; if (Math.abs(a * x + b * y + c) > 4 * s) continue; n++; sx += x; sy += y; sxx += x * x; sxy += x * y; syy += y * y; }
+      if (n < 20) break; const mx = sx / n, my = sy / n, cxx = sxx / n - mx * mx, cxy = sxy / n - mx * my, cyy = syy / n - my * my, th = 0.5 * Math.atan2(2 * cxy, cxx - cyy); a = -Math.sin(th); b = Math.cos(th); c = -(a * mx + b * my); }
+    if (!lines.some(l => Math.abs(l[0] * a + l[1] * b) > 0.998 && Math.abs(Math.abs(l[2]) - Math.abs(c)) < 6 * s)) lines.push([a, b, c, votes]); }
+  if (dbg) { dbg.peaks = peaks.length; dbg.lines = lines.map(l => [Math.round(Math.atan2(-l[0], l[1]) * 180 / Math.PI), Math.round(-(l[0] * W / 2 + l[2]) / (l[1] || 1e-9))]); }
+  if (lines.length < 4) return null;
+  const X = (l, m) => { const z = l[0] * m[1] - l[1] * m[0]; if (Math.abs(z) < 1e-9) return null; return [(l[1] * m[2] - l[2] * m[1]) / z, (l[2] * m[0] - l[0] * m[2]) / z]; };
+  // candidate vanishing points for the lines that run along the court
+  const vps = [];
+  for (let i = 0; i < lines.length; i++) for (let j = i + 1; j < lines.length; j++) { const p = X(lines[i], lines[j]); if (!p || p[0] < -0.6 * W || p[0] > 1.6 * W || p[1] < -1.2 * H || p[1] > 0.72 * H) continue;
+    const grp = lines.filter(l => Math.abs(l[0] * p[0] + l[1] * p[1] + l[2]) < 24 * s), an = grp.map(l => Math.atan2(-l[0], l[1])); let spread = 0; for (const u of an) for (const v of an) { let dd = Math.abs(u - v); if (dd > Math.PI / 2) dd = Math.PI - dd; if (dd > spread) spread = dd; }
+    if (spread < 0.4) continue; vps.push({ p, grp, wt: grp.reduce((q, l) => q + l[3], 0) }); }
+  vps.sort((u, v) => v.wt - u.wt); const vpList = []; for (const v of vps) { if (vpList.length >= 6) break; if (!vpList.some(u => Math.hypot(u.p[0] - v.p[0], u.p[1] - v.p[1]) < 40 * s)) vpList.push(v); }
+  if (dbg) dbg.vp = vpList.map(v => [v.p.map(Math.round), v.grp.length]);
+  if (!vpList.length) return null;
+  const dil = new Uint8Array(W * H), R = Math.max(2, Math.round(2.5 * s)); for (const o of pts) { const x = o % W, y = (o / W) | 0; for (let dy = -R; dy <= R; dy++) for (let dx = -R; dx <= R; dx++) { const xx = x + dx, yy = y + dy; if (xx >= 0 && yy >= 0 && xx < W && yy < H) dil[yy * W + xx] = 1; } }
+  const C = COURT, AX = [-C.D, -C.S, 0, C.S, C.D], AID = ['doublesL', 'singlesL', 'center', 'singlesR', 'doublesR'], CY = [0, C.SV, C.LEN - C.SV, C.LEN], CID = ['baseline', 'service', 'farService', 'farBaseline'];
+  const homog = (w, im) => { const A = [], b = []; for (let k = 0; k < 4; k++) { const [x, y] = w[k], [u, v] = im[k]; A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]); b.push(u); A.push([0, 0, 0, x, y, 1, -v * x, -v * y]); b.push(v); } return solve(A, b); };
+  const pr = (h, x, y) => { const z = h[6] * x + h[7] * y + 1; return [(h[0] * x + h[1] * y + h[2]) / z, (h[3] * x + h[4] * y + h[5]) / z, z]; };
+  const NS = 40, segs = Object.entries(MODEL_LINES), tops = []; let best = null;
+  for (const bestVp of vpList) {
+  const yRef = Math.min(H - 1, Math.max(bestVp.p[1] + 0.25 * H, 0.7 * H)), xAt = l => Math.abs(l[0]) < 1e-6 ? 1e9 : -(l[1] * yRef + l[2]) / l[0];
+  const along = bestVp.grp.slice().sort((p, q) => xAt(p) - xAt(q)).slice(0, 7);
+  const yAt = l => -(l[0] * W / 2 + l[2]) / l[1];
+  const across = lines.filter(l => !bestVp.grp.includes(l) && Math.abs(l[1]) > 0.75 && yAt(l) > bestVp.p[1]).sort((p, q) => yAt(q) - yAt(p)).slice(0, 6); // bottom of the image first
+  if (across.length < 2) continue;
+  for (let i = 0; i < along.length; i++) for (let j = i + 1; j < along.length; j++) for (let p = 0; p < across.length; p++) for (let q = p + 1; q < across.length; q++) {
+    const im = [X(along[i], across[p]), X(along[j], across[p]), X(along[i], across[q]), X(along[j], across[q])]; if (im.some(v => !v)) continue;
+    for (let a = 0; a < 5; a++) for (let b = a + 1; b < 5; b++) for (let c = 0; c < 4; c++) for (let e = c + 1; e < 4; e++) {
+      const h = homog([[AX[a], CY[c]], [AX[b], CY[c]], [AX[a], CY[e]], [AX[b], CY[e]]], im); if (!h) continue;
+      { // the camera this naming implies must be a believable one: sane lens, 0.8-15 m high, behind the near baseline
+        const u1 = [h[0] - W / 2 * h[6], h[3] - H / 2 * h[6], h[6]], u2 = [h[1] - W / 2 * h[7], h[4] - H / 2 * h[7], h[7]], u3 = [h[2] - W / 2, h[5] - H / 2, 1], den = u1[2] * u2[2]; if (Math.abs(den) < 1e-12) continue;
+        const f2 = -(u1[0] * u2[0] + u1[1] * u2[1]) / den, M = Math.max(W, H); if (!(f2 > (0.35 * M) ** 2 && f2 < (3 * M) ** 2)) continue; const f = Math.sqrt(f2), k = v => [v[0] / f, v[1] / f, v[2]];
+        const r1 = k(u1), r2 = k(u2), t = k(u3), n1 = Math.hypot(...r1), n2 = Math.hypot(...r2); if (n1 / n2 < 0.75 || n1 / n2 > 1.33) continue; const lam = (n1 + n2) / 2;
+        const r3 = [r1[1] * r2[2] - r1[2] * r2[1], r1[2] * r2[0] - r1[0] * r2[2], r1[0] * r2[1] - r1[1] * r2[0]].map(v => v / (n1 * n2)), dot = (p, q) => p[0] * q[0] + p[1] * q[1] + p[2] * q[2];
+        const Cx = -dot(r1, t) / (n1 * lam), Cy = -dot(r2, t) / (n2 * lam), Cz = Math.abs(dot(r3, t) / lam); if (Cz < 0.8 || Cz > 15 || Cy > 2 || Cy < -40 || Math.abs(Cx) > 15) continue; }
+      let score = 0, vis = 0, usedL = 0, x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9; const per = {};
+      for (const [id, [A, B]] of segs) { let hit = 0, n = 0, first = null, last = null; for (let k = 0; k <= NS; k++) { const P = pr(h, A[0] + (B[0] - A[0]) * k / NS, A[1] + (B[1] - A[1]) * k / NS); if (P[2] <= 0) continue; const x = Math.round(P[0]), y = Math.round(P[1]); if (x < 4 || y < 4 || x >= W - 4 || y >= H - 4) continue; n++; if (!first) first = P; last = P; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; if (dil[y * W + x]) hit++; }
+        vis += n; score += hit - 0.7 * (n - hit); per[id] = { hit, n, first, last };
+        if (n >= 6 && hit / n >= 0.5) { const dx = last[0] - first[0], dy = last[1] - first[1], L = Math.hypot(dx, dy); if (L > 20 * s) { const mx = (first[0] + last[0]) / 2, my = (first[1] + last[1]) / 2;
+          for (let q = 0; q < lines.length; q++) { const l = lines[q]; if (usedL & (1 << q)) continue; if (Math.abs(l[0] * dx + l[1] * dy) / L < 0.05 && Math.abs(l[0] * mx + l[1] * my + l[2]) < 5 * s) { usedL |= 1 << q; score += 1000; per[id].m = true; break; } } } } }
+      if (vis < 3 * NS || x1 - x0 < 0.3 * W || y1 - y0 < 0.12 * H) continue; // too little of the court in view to trust
+      if (!best || score > best.score) best = { score, per, vis }; if (score > 4000) { tops.push({ score, per, vis }); if (tops.length > 400) { tops.sort((u, v) => v.score - u.score); tops.length = 40; } } } }
+  }
+  if (dbg) dbg.best = best && [best.score, best.vis];
+  if (!best || best.score < 4000) return null;
+  // check the most promising namings with the full camera fit and keep the one that explains the most lines well
+  tops.sort((u, v) => v.score - u.score); let pick = null; const seen = new Set();
+  for (const hyp of tops) { if (seen.size >= 6) break; const raw = {};
+    for (const id in hyp.per) { const q = hyp.per[id]; if (q.m && !id.startsWith('far') && q.n >= 6 && q.hit / q.n >= 0.5 && Math.hypot(q.first[0] - q.last[0], q.first[1] - q.last[1]) > 30 * s) raw[id] = [[q.first[0], q.first[1]], [q.last[0], q.last[1]]]; }
+    const key = Object.keys(raw).map(id => id + Math.round(raw[id][0][1] / 20)).join(); if (seen.has(key) || Object.keys(raw).length < 4) continue; seen.add(key);
+    let lines = {}; for (const id in raw) lines[id] = refineLine(img, raw[id][0], raw[id][1], s); let cal = calibrate(lines, W, H); if (!cal) continue;
+    const bad = Object.keys(cal.perLine).filter(id => cal.perLine[id] > 4 * s); if (bad.length && Object.keys(lines).length - bad.length >= 4) { for (const id of bad) { delete lines[id]; delete raw[id]; } cal = calibrate(lines, W, H); if (!cal) continue; }
+    // grow: look for paint where the fitted camera says the remaining lines should be, and refit with whatever is found
+    for (let round = 0; round < 3 && cal.rms <= 3 * s; round++) { let added = 0;
+      for (const [id, [A, B]] of segs) { if (lines[id] || id.startsWith('far')) continue; let first = null, last = null; for (let k = 0; k <= 60; k++) { const P = [A[0] + (B[0] - A[0]) * k / 60, A[1] + (B[1] - A[1]) * k / 60, 0]; if (cal.cam.norm(P)[2] < 0.1) continue; const q = cal.cam.project(P); if (q[0] < 6 || q[1] < 6 || q[0] > W - 6 || q[1] > H - 6) continue; if (!first) first = q; last = q; }
+        if (!first) continue; const L = Math.hypot(first[0] - last[0], first[1] - last[1]); if (L < 40 * s) continue; const got = refineLine(img, first, last, 2 * s), want = Math.max(8, Math.min(120, Math.round(L / 4))) + 1;
+        if (got.length >= 0.6 * want) { const trial = { ...lines, [id]: got }, c2 = calibrate(trial, W, H, cal.cam.p); if (c2 && c2.rms <= Math.max(2 * s, 1.3 * cal.rms) && c2.perLine[id] <= 2.5 * s) { lines = trial; raw[id] = [first, last]; cal = c2; added++; } } }
+      if (!added) break; }
+    const n = Object.keys(lines).length, C = cal.cam.C; if (dbg) (dbg.tried = dbg.tried || []).push([Object.keys(lines).join('+'), +cal.rms.toFixed(1), C.map(v => +v.toFixed(1)), +hyp.score.toFixed(0)]); if (cal.rms > 3 * s || C[2] < 0.8 || C[2] > 15 || C[1] > 2 || !Object.keys(lines).some(id => MODEL_LINES[id][0][0] === MODEL_LINES[id][1][0]) || !Object.keys(lines).some(id => MODEL_LINES[id][0][1] === MODEL_LINES[id][1][1])) continue;
+    if (n < 5) continue;
+    if (!pick || n > pick.n || (n === pick.n && cal.rms < pick.cal.rms)) pick = { raw, lines, cal, n }; }
+  return pick;
 }

@@ -59,7 +59,7 @@ main{max-width:1100px;margin:0 auto;padding:1.5rem clamp(1rem,4vw,3rem) 3rem}
 .modes input:checked+span{border-color:var(--saddle);border-left-color:var(--ball);background:var(--paper)}
 .modes input:focus-visible+span{outline:2px solid var(--saddle);outline-offset:3px}
 .tips{border-top:1px solid var(--sand);padding-top:.9rem}.tips summary{cursor:pointer;font-weight:500;color:var(--saddle)}.tips ul{margin:.6rem 0 0;padding-left:1.2rem;max-width:70ch}.tips li{margin:.3rem 0}
-.err,.msg.bad{color:var(--out)}.msg{min-height:1.5em;margin:.8rem 0 0}.msg.good{color:var(--in)}
+.err,.msg.bad{color:var(--out)}.msg{min-height:1.5em;margin:0 0 .8rem;max-width:75ch}.msg.good{color:var(--in)}
 .court-ui{display:grid;grid-template-columns:minmax(0,1fr) 230px;gap:1.25rem;align-items:start}
 .stage{background:var(--espresso);border-radius:6px;overflow:hidden;line-height:0;display:flex;justify-content:center}
 #frame{max-width:100%;max-height:78vh;touch-action:pinch-zoom;cursor:crosshair}
