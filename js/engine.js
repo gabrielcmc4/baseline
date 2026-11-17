@@ -300,7 +300,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
   const meta = { yOff, netRefs: 0, candidates: cands.length, fps };
   if (!only) { const refs = obs.filter(o => o.fg && o.t.length >= 8 && o.zNet > 0.05 && o.zNet < 1.12).slice(0, 40);
     const endY = off => { const ys = []; for (const o of refs) { const r = fitOne(o, off); if (!r || r.n < o.t.length || r.fit.rms > 3) continue; const y = simulateAt(r.fit.x, [r.t[r.n - 1]])[0][1]; if (Math.abs(y - COURT.NET) < 3.5) ys.push(y); } ys.sort((a, b) => a - b); return ys.length >= 4 ? [ys[ys.length >> 1], ys.length] : null; };
-    if (refs.length >= 4) { const a = endY(yOff); if (a) { const b = endY(yOff + 0.8); let off = yOff; if (b && Math.abs(b[0] - a[0]) > 0.05) off = yOff + 0.8 * (COURT.NET - 0.1 - a[0]) / (b[0] - a[0]); meta.yOff = Math.max(0, Math.min(3, off)); meta.netRefs = a[1]; } } }
+    if (refs.length >= 4) { const a = endY(yOff); if (a) { const b = endY(yOff + 0.8); let off = yOff; if (b && Math.abs(b[0] - a[0]) > 0.05) off = yOff + 0.8 * (COURT.NET - 0.1 - a[0]) / (b[0] - a[0]); meta.yOff = Math.max(0.6, Math.min(2.2, off)); meta.netRefs = a[1]; } } }
   const shots = [];
   obs.forEach((o, ci) => { if (onProgress) onProgress(ci / obs.length); if (only && !only.some(q => Math.abs(q - o.t0) < 0.3)) return;
     const r = fitOne(o, meta.yOff); if (!r) return; let { fit, t, uv, n, prior } = r; const fg = o.fg, t0 = o.t0; let netHit = false;
@@ -330,6 +330,17 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
 // Finds painted lines, groups them into "along the court" (meeting at a vanishing point) and "across the court",
 // then tries every way of naming them and keeps the naming under which the whole court drawing best lands on paint.
 // Assumes the camera looks down the court from behind one baseline. Returns {raw: {lineId: [[x,y],[x,y]]}, score} or null.
+// Look for paint where the fitted camera says the not-yet-used lines should be, and refit with whatever is found.
+function growLines(img, lines, raw, cal) { const W = img.width, H = img.height, s = Math.sqrt(W * H / (720 * 1280)), segs = Object.entries(MODEL_LINES);
+  for (let round = 0; round < 3 && cal.rms <= 3 * s; round++) { let added = 0;
+    for (const [id, [A, B]] of segs) { if (lines[id] || (id.startsWith('far') && round === 0)) continue; let first = null, last = null; for (let k = 0; k <= 60; k++) { const P = [A[0] + (B[0] - A[0]) * k / 60, A[1] + (B[1] - A[1]) * k / 60, 0]; if (cal.cam.norm(P)[2] < 0.1) continue; const q = cal.cam.project(P); if (q[0] < 6 || q[1] < 6 || q[0] > W - 6 || q[1] > H - 6) continue; if (!first) first = q; last = q; }
+      if (!first) continue; const L = Math.hypot(first[0] - last[0], first[1] - last[1]); if (L < 40 * s) continue; const got = refineLine(img, first, last, 2 * s), want = Math.max(8, Math.min(120, Math.round(L / 4))) + 1;
+      if (id.startsWith('far')) { let dd = 0; for (const q of got) dd += Math.abs(q[1] - cal.cam.tapeY(q[0])); if (dd / got.length < 7 * s) continue; } // that is the net tape, not a line on the ground
+      if (got.length >= 0.6 * want) { const trial = { ...lines, [id]: got }, c2 = calibrate(trial, W, H, cal.cam.p); if (c2 && c2.rms <= Math.max(2.5 * s, 1.5 * cal.rms) && c2.perLine[id] <= 3 * s) { lines = trial; raw[id] = [first, last]; cal = c2; added++; } } }
+    if (!added) break; }
+  return { lines, cal }; }
+// Use another frame of the same fixed camera to pick up lines that were hidden (by a player, by shade) in the frame the court was found in.
+export function growCourt(img, court) { const raw = { ...court.raw }, r = growLines(img, { ...court.lines }, raw, court.cal); return { raw, lines: r.lines, cal: r.cal, n: Object.keys(r.lines).length }; }
 export function autoCourt(img, dbg) { const M = Math.max(img.width, img.height); if (M <= 2000) return autoCourtCore(img, dbg);
   const k = Math.ceil(M / 960), w = Math.floor(img.width / k), h = Math.floor(img.height / k), small = new Uint8ClampedArray(w * h * 4), d = img.data; // box-average down, search there, then refit on the full frame
   for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { let r = 0, g = 0, b = 0; for (let dy = 0; dy < k; dy++) for (let dx = 0; dx < k; dx++) { const j = ((y * k + dy) * img.width + x * k + dx) * 4; r += d[j]; g += d[j + 1]; b += d[j + 2]; } const o = (y * w + x) * 4, n = k * k; small[o] = r / n; small[o + 1] = g / n; small[o + 2] = b / n; small[o + 3] = 255; }
@@ -411,13 +422,7 @@ function autoCourtCore(img, dbg) {
     const key = Object.keys(raw).map(id => id + Math.round(raw[id][0][1] / 20)).join(); if (seen.has(key) || Object.keys(raw).length < 4) continue; seen.add(key);
     let lines = {}; for (const id in raw) lines[id] = refineLine(img, raw[id][0], raw[id][1], s); let cal = calibrate(lines, W, H); if (!cal) continue;
     const bad = Object.keys(cal.perLine).filter(id => cal.perLine[id] > 4 * s); if (bad.length && Object.keys(lines).length - bad.length >= 4) { for (const id of bad) { delete lines[id]; delete raw[id]; } cal = calibrate(lines, W, H); if (!cal) continue; }
-    // grow: look for paint where the fitted camera says the remaining lines should be, and refit with whatever is found
-    for (let round = 0; round < 3 && cal.rms <= 3 * s; round++) { let added = 0;
-      for (const [id, [A, B]] of segs) { if (lines[id] || (id.startsWith('far') && round === 0)) continue; let first = null, last = null; for (let k = 0; k <= 60; k++) { const P = [A[0] + (B[0] - A[0]) * k / 60, A[1] + (B[1] - A[1]) * k / 60, 0]; if (cal.cam.norm(P)[2] < 0.1) continue; const q = cal.cam.project(P); if (q[0] < 6 || q[1] < 6 || q[0] > W - 6 || q[1] > H - 6) continue; if (!first) first = q; last = q; }
-        if (!first) continue; const L = Math.hypot(first[0] - last[0], first[1] - last[1]); if (L < 40 * s) continue; const got = refineLine(img, first, last, 2 * s), want = Math.max(8, Math.min(120, Math.round(L / 4))) + 1;
-        if (id.startsWith('far')) { let dd = 0; for (const q of got) dd += Math.abs(q[1] - cal.cam.tapeY(q[0])); if (dd / got.length < 7 * s) continue; } // that is the net tape, not a line on the ground
-        if (got.length >= 0.6 * want) { const trial = { ...lines, [id]: got }, c2 = calibrate(trial, W, H, cal.cam.p); if (c2 && c2.rms <= Math.max(2 * s, 1.3 * cal.rms) && c2.perLine[id] <= 2.5 * s) { lines = trial; raw[id] = [first, last]; cal = c2; added++; } } }
-      if (!added) break; }
+    ({ lines, cal } = growLines(img, lines, raw, cal));
     const n = Object.keys(lines).length, C = cal.cam.C; if (dbg) (dbg.tried = dbg.tried || []).push([Object.keys(lines).join('+'), +cal.rms.toFixed(1), C.map(v => +v.toFixed(1)), +hyp.score.toFixed(0)]); if (cal.rms > 3 * s || C[2] < 0.8 || C[2] > 40 || C[1] > 2 || !Object.keys(lines).some(id => MODEL_LINES[id][0][0] === MODEL_LINES[id][1][0]) || !Object.keys(lines).some(id => MODEL_LINES[id][0][1] === MODEL_LINES[id][1][1])) continue;
     if (n < 5) continue;
     if (!pick || n > pick.n || (n === pick.n && cal.rms < pick.cal.rms)) pick = { raw, lines, cal, n }; }

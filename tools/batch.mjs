@@ -1,12 +1,13 @@
 // node tools/batch.mjs <video> [mode]  — full pipeline as the app does it: auto court -> detect -> analyze
 import { spawn, execFileSync } from 'node:child_process'; import fs from 'node:fs';
-import { autoCourt, Detector, analyze } from '../js/engine.js';
+import { autoCourt, growCourt, Detector, analyze } from '../js/engine.js';
 const [video, mode = 'coach', maxS] = process.argv.slice(2);
 const pr = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,avg_frame_rate:stream_side_data=rotation:format=duration', '-of', 'json', video]).toString(), J = JSON.parse(pr), st = J.streams[0];
 let w = st.width, h = st.height; const rot = Math.abs((st.side_data_list || []).map(s => s.rotation || 0)[0] || 0); if (rot === 90 || rot === 270) [w, h] = [h, w];
 const k = Math.min(1, 1600 / Math.max(w, h)), W = Math.round(w * k / 2) * 2, H = Math.round(h * k / 2) * 2, [fa, fb] = st.avg_frame_rate.split('/').map(Number), fps = fa / fb, dur = maxS ? Math.min(+maxS, +J.format.duration) : +J.format.duration, stride = fps > 75 ? Math.round(fps / 60) : 1;
 const grab = t => ({ width: W, height: H, data: execFileSync('ffmpeg', ['-v', 'error', '-ss', String(t), '-i', video, '-frames:v', '1', '-vf', `scale=${W}:${H}`, '-f', 'rawvideo', '-pix_fmt', 'rgba', '-'], { maxBuffer: 1e9 }) });
 let court = null, t0 = Date.now(); for (const p of [0.08, 0.3, 0.55, 0.8]) { const r = autoCourt(grab(dur * p)); if (r && (!court || r.n > court.n)) court = r; if (court && court.n >= 6) break; }
+if (court) for (const p of [0.3, 0.55, 0.8, 0.08]) { const r = growCourt(grab(dur * p), court); if (r.n > court.n) court = r; }
 const name = video.split('/').pop(); if (!court) { console.log(name, `${W}x${H}@${fps.toFixed(0)}`, 'COURT NOT FOUND', Date.now() - t0, 'ms'); process.exit(0); }
 const cam = court.cal.cam; console.log(name, `${W}x${H}@${fps.toFixed(0)} ${dur.toFixed(0)}s`, 'court', Object.keys(court.lines).join('+'), 'rms', court.cal.rms.toFixed(1), 'f', cam.f.toFixed(0), 'k1', cam.k1.toFixed(2), 'cam', cam.C.map(v => v.toFixed(1)).join(','), Date.now() - t0, 'ms');
 fs.writeFileSync(`/home/claude/tv/${name}.cam.json`, JSON.stringify({ p: cam.p, W, H, lines: court.lines }));

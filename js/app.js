@@ -20,10 +20,13 @@ async function openFile(file) { $('err1').hidden = true; S.mode = document.query
   catch (e) { console.error(e); $('err1').textContent = t('errVideo'); $('err1').hidden = false; } }
 
 // ---- step 2: the app proposes the court, the user confirms or corrects
-function courtWorker(img) { return new Promise(res => { const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); const done = v => { w.terminate(); res(v); }; w.onmessage = e => done(e.data.court || null); w.onerror = () => done(null); setTimeout(() => done(null), 45000); w.postMessage({ court: { width: img.width, height: img.height, data: img.data } }); }); }
+function courtWorker(img, grow) { return new Promise(res => { const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); const done = v => { w.terminate(); res(v); }; w.onmessage = e => done(e.data.court || null); w.onerror = () => done(null); setTimeout(() => done(null), 45000); w.postMessage({ court: { width: img.width, height: img.height, data: img.data }, grow }); }); }
 async function autoFind() { const token = S.autoToken = {}, msg = $('calMsg'); msg.className = 'msg'; msg.textContent = t('autoLooking'); let best = null;
-  for (const pos of [80, 300, 550, 800]) { let img; try { img = await grabFrame(S.info, S.info.duration * pos / 1000); } catch (e) { continue; } const r = await courtWorker(img); if (S.autoToken !== token) return;
+  const seen = [];
+  for (const pos of [80, 300, 550, 800]) { let img; try { img = await grabFrame(S.info, S.info.duration * pos / 1000); } catch (e) { continue; } seen.push(img); const r = await courtWorker(img); if (S.autoToken !== token) return;
     if (r && (!best || r.n > best.r.n)) best = { r, img, pos }; if (best && best.r.n >= 6) break; }
+  if (best) { if (seen.length < 3) for (const pos of [550, 800]) { try { seen.push(await grabFrame(S.info, S.info.duration * pos / 1000)); } catch (e) {} } // lines hidden in one frame are often visible in another
+    for (const img of seen) { if (img === best.img) continue; const r = await courtWorker(img, best.r); if (S.autoToken !== token) return; if (r && r.n > best.r.n) best.r = r; } }
   if (S.autoToken !== token) return; S.autoToken = null; window.__baselineAuto = best ? best.r.n : 0;
   if (!best) { msg.textContent = t('autoNone'); msg.classList.add('bad'); S.img = await grabFrame(S.info, S.info.duration * $('seek').value / 1000); drawFrame(); return; }
   S.img = best.img; $('seek').value = best.pos; S.raw = best.r.raw; S.lines = best.r.lines; S.pending = []; S.active = null; S.cal = { cam: new Camera(best.r.camP, S.info.W, S.info.H), rms: best.r.rms, perLine: best.r.perLine };
