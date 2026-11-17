@@ -1,0 +1,56 @@
+const D = {
+  tagline: ['Análise de golpes de tênis', 'Tennis shot analysis'],
+  heroTitle: ['Saiba onde cada bola caiu.', 'Know where every ball landed.'],
+  heroSub: ['Envie o vídeo do treino ou do jogo e veja velocidade, altura sobre a rede, efeito e o ponto de queda de cada golpe. A análise roda no seu aparelho: o vídeo não sai dele.', 'Upload a practice or match video and see the speed, net clearance, spin and landing spot of every shot. The analysis runs on your device: the video never leaves it.'],
+  step1: ['Vídeo', 'Video'], step2: ['Quadra', 'Court'], step3: ['Análise', 'Analysis'], step4: ['Resultado', 'Results'],
+  chooseVideo: ['Escolher vídeo', 'Choose video'], dropHint: ['ou arraste o arquivo para cá', 'or drag the file here'],
+  sessionType: ['O que tem no vídeo?', 'What is in the video?'],
+  coach: ['Aula ou bate-bola', 'Lesson or rally practice'], coachD: ['Golpes de fundo contra o professor ou a máquina.', 'Groundstrokes against a coach or ball machine.'],
+  serve: ['Treino de saque', 'Serve practice'], serveD: ['Cada saque é conferido contra a área de saque correta.', 'Each serve is checked against the correct service box.'],
+  match: ['Jogo', 'Match'], matchD: ['Saques e golpes do jogador mais perto da câmera.', 'Serves and shots of the player nearest the camera.'],
+  tipsTitle: ['Como gravar para ter um bom resultado', 'How to record for a good result'],
+  tips: ['Câmera fixa (tripé ou presa na grade), atrás da linha de fundo e o mais alta possível: 3 m ou mais.|Deitada (horizontal), com a quadra inteira no quadro, incluindo as duas linhas de fundo.|60 quadros por segundo ou mais. Em 30 a velocidade sai certa, mas o efeito fica impreciso.|Boa luz e, se der, um fundo que contraste com a bola.', 'Fixed camera (tripod or clipped to the fence), behind the baseline and as high as you can: 3 m or more.|Landscape, with the whole court in frame, including both baselines.|60 frames per second or more. At 30 the speed is right but spin is imprecise.|Good light and, if possible, a background that contrasts with the ball.'],
+  courtTitle: ['Marque as linhas da quadra', 'Mark the court lines'],
+  courtHelp: ['Para cada linha destacada no desenho, toque em dois pontos dela no vídeo, bem afastados um do outro. Marque pelo menos 4 linhas; quanto mais, melhor. O seu lado é o mais próximo da câmera.', 'For each line highlighted in the drawing, tap two points on it in the video, far apart from each other. Mark at least 4 lines; more is better. Your side is the one nearest the camera.'],
+  frameAt: ['Quadro do vídeo', 'Video frame'], skip: ['Não aparece, pular', 'Not visible, skip'], redo: ['Refazer esta linha', 'Redo this line'], clearAll: ['Limpar tudo', 'Clear all'],
+  check: ['Conferir quadra', 'Check court'], analyze: ['Analisar o vídeo', 'Analyze the video'], back: ['Voltar', 'Back'],
+  needLines: ['Marque pelo menos 4 linhas, incluindo linhas nas duas direções.', 'Mark at least 4 lines, including lines in both directions.'],
+  calOk: ['A quadra em verde deve cobrir as linhas reais. Se cobrir, pode analisar.', 'The green court should sit on the real lines. If it does, you can analyze.'],
+  calPoor: ['O encaixe ficou ruim. Refaça as linhas que estão fora ou marque mais linhas.', 'The fit is poor. Redo the lines that are off or mark more lines.'],
+  calFail: ['Não consegui encaixar a quadra. Confira se cada linha foi marcada no lugar certo.', 'Could not fit the court. Check that each line was marked in the right place.'],
+  camInfo: ['Câmera a {h} m de altura, {d} m atrás da linha de fundo.', 'Camera {h} m high, {d} m behind the baseline.'],
+  L_baseline: ['Sua linha de fundo', 'Your baseline'], L_service: ['Sua linha de saque', 'Your service line'], L_center: ['Linha central de saque', 'Center service line'],
+  L_singlesL: ['Lateral de simples esquerda', 'Left singles sideline'], L_singlesR: ['Lateral de simples direita', 'Right singles sideline'], L_doublesL: ['Lateral de duplas esquerda', 'Left doubles sideline'], L_doublesR: ['Lateral de duplas direita', 'Right doubles sideline'],
+  L_farService: ['Linha de saque do outro lado', 'Far service line'], L_farBaseline: ['Linha de fundo do outro lado', 'Far baseline'],
+  reading: ['Lendo o vídeo e procurando a bola', 'Reading the video and finding the ball'], fitting: ['Calculando a trajetória de cada golpe', 'Working out the flight of each shot'],
+  slowPath: ['Este navegador lê o vídeo em tempo real, então a análise dura o dobro do vídeo. Chrome ou Edge no computador são bem mais rápidos.', 'This browser reads the video in real time, so the analysis takes twice as long as the video. Chrome or Edge on a computer are much faster.'],
+  cancel: ['Cancelar', 'Cancel'], keepOpen: ['Deixe esta aba aberta até terminar.', 'Keep this tab open until it finishes.'],
+  errVideo: ['Não consegui abrir este vídeo. Tente um arquivo MP4 ou MOV.', 'Could not open this video. Try an MP4 or MOV file.'], errAnalyze: ['A análise parou: {e}', 'The analysis stopped: {e}'],
+  noShots: ['Nenhum golpe encontrado. Confira a marcação da quadra e se a bola aparece bem no vídeo.', 'No shots found. Check the court marking and that the ball is clearly visible in the video.'],
+  shots: ['golpes', 'shots'], serves: ['saques', 'serves'], inPct: ['dentro', 'in'], medSpeed: ['velocidade mediana', 'median speed'], medClear: ['folga mediana sobre a rede', 'median net clearance'], medSpin: ['efeito mediano', 'median spin'],
+  topView: ['Onde as bolas caíram', 'Where the balls landed'], sideView: ['Trajetória sobre a rede', 'Flight over the net'],
+  in: ['Dentro', 'In'], net: ['Rede', 'Net'], long: ['Longa', 'Long'], wide: ['Fora na lateral', 'Wide'], out: ['Fora', 'Out'],
+  yourSide: ['seu lado', 'your side'], netLbl: ['rede', 'net'], heightNote: ['altura (m), desenhada 2× maior que a escala real', 'height (m), drawn 2× taller than true scale'], distNote: ['distância da sua linha de fundo (m)', 'distance from your baseline (m)'],
+  shotList: ['Golpe a golpe', 'Shot by shot'], time: ['Tempo', 'Time'], result: ['Resultado', 'Result'], speed: ['Velocidade', 'Speed'], clearance: ['Sobre a rede', 'Over net'], spin: ['Efeito', 'Spin'], depth: ['Profundidade', 'Depth'], type: ['Tipo', 'Type'],
+  topspin: ['topspin', 'topspin'], slice: ['slice', 'slice'], flat: ['chapada', 'flat'], serveT: ['saque', 'serve'], stroke: ['golpe', 'stroke'],
+  selTitle: ['Golpe em {t}', 'Shot at {t}'], selHint: ['Toque em um ponto ou em uma linha da tabela para ver o golpe.', 'Tap a dot or a table row to see the shot.'],
+  spinExplain: ['Sem efeito, só com gravidade e arrasto do ar, esta bola cairia a {a} m da sua linha de fundo. Ela caiu a {b} m. A diferença de {d} m corresponde a {k} de cerca de {r} rpm (±{s}).', 'With no spin, under gravity and air drag only, this ball would land {a} m from your baseline. It landed at {b} m. The {d} m difference corresponds to {k} of about {r} rpm (±{s}).'],
+  spinWeak: ['A trajetória é compatível com bola sem efeito: a diferença para a curva sem efeito ({d} m) é menor que a incerteza da medida.', 'The flight is consistent with no spin: the difference from the no-spin curve ({d} m) is smaller than the measurement uncertainty.'],
+  measured: ['trajetória medida', 'measured flight'], noSpin: ['mesma batida, sem efeito', 'same hit, no spin'],
+  accTitle: ['Quanto confiar', 'How far to trust this'],
+  acc: ['O ponto de queda é calculado estendendo a trajetória medida até o chão. Nesta gravação o erro típico é de ±{d} m em profundidade e ±{w} m na lateral. A altura sobre a rede tem erro típico de ±{c} m. Bolas rebatidas antes de quicar aparecem onde teriam caído.', 'The landing spot is calculated by extending the measured flight to the ground. In this recording the typical error is ±{d} m in depth and ±{w} m sideways. Net clearance has a typical error of ±{c} m. Balls hit before they bounce appear where they would have landed.'],
+  accSpin: ['O efeito vem da curvatura da trajetória e é a medida mais sensível: o erro típico aqui é de ±{s} rpm por golpe. Use a mediana e a comparação entre golpes, não o número de um golpe só.', 'Spin comes from the curvature of the flight and is the most sensitive measurement: the typical error here is ±{s} rpm per shot. Use the median and compare between shots rather than trusting a single shot.'],
+  closeCall: ['no limite', 'close call'], closeLegend: ['contorno vazado: perto demais da linha para ter certeza', 'hollow marker: too close to the line to be sure'],
+  depthCal: ['A profundidade foi calibrada com {n} bolas que morreram na rede: nelas a posição da bola é conhecida com exatidão.', 'Depth was calibrated using {n} balls that died in the net, where the ball position is known exactly.'],
+  depthDefault: ['Não houve bolas na rede suficientes para calibrar a profundidade; foi usado um valor padrão, então as distâncias podem estar deslocadas em 1 a 2 m.', 'There were not enough net balls to calibrate depth; a default was used, so distances may be shifted by 1 to 2 m.'],
+  csv: ['Baixar tabela (CSV)', 'Download table (CSV)'], print: ['Imprimir ou salvar PDF', 'Print or save PDF'], another: ['Analisar outro vídeo', 'Analyze another video'],
+  footer: ['Saibro roda inteiro no navegador. Nenhum vídeo é enviado para servidor algum.', 'Saibro runs entirely in the browser. No video is sent to any server.'],
+};
+let lang = (localStorage.getItem('saibro-lang') || ((navigator.language || 'pt').toLowerCase().startsWith('pt') ? 'pt' : 'en'));
+export const getLang = () => lang;
+export function t(k, v) { const e = D[k]; let s = e ? e[lang === 'pt' ? 0 : 1] : k; if (v) for (const q in v) s = s.replace('{' + q + '}', v[q]); return s; }
+export function setLang(l) { lang = l; try { localStorage.setItem('saibro-lang', l); } catch (e) {} document.documentElement.lang = l === 'pt' ? 'pt-BR' : 'en'; apply(); }
+export function apply(root = document) { root.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
+  root.querySelectorAll('[data-i18n-list]').forEach(el => { el.innerHTML = ''; t(el.dataset.i18nList).split('|').forEach(s => { const li = document.createElement('li'); li.textContent = s; el.appendChild(li); }); });
+  document.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang))); }
+export const num = (v, d = 0) => v.toLocaleString(lang === 'pt' ? 'pt-BR' : 'en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
