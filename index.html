@@ -52,11 +52,11 @@
 <section id="s2" class="panel" hidden>
   <h2 data-i18n="courtTitle"></h2>
   <p class="help" data-i18n="courtHelp"></p>
+  <p class="active-line" id="activeName" aria-live="polite"></p>
   <div class="court-ui">
     <div class="stage"><canvas id="frame"></canvas></div>
     <aside>
       <svg id="mini" viewBox="-7 -1.5 14 27" aria-hidden="true"></svg>
-      <p class="active-line" id="activeName"></p>
       <div class="row"><button class="btn" id="skip" data-i18n="skip"></button><button class="btn" id="redo" data-i18n="redo"></button></div>
       <label class="slider"><span data-i18n="frameAt"></span><input type="range" id="seek" min="0" max="1000" value="80"></label>
       <button class="btn link" id="clear" data-i18n="clearAll"></button>

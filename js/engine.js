@@ -156,7 +156,7 @@ export class Detector {
   // push a frame; returns {t, c:[[x,y,area]], blobs:[[x0,y0,x1,y1]], valid} for the PREVIOUS frame (or null)
   push(rgba, t) {
     const g = this._gray(rgba);
-    if (this.bufs.length) { const q = this.bufs[this.bufs.length - 1].g; let d = 0, m = 0; for (let i = 0; i < g.length; i += 97) { const e = g[i] - q[i]; d += e < 0 ? -e : e; m++; } d /= m; if (this.ema === undefined) this.ema = d; if (d < 0.35 * this.ema) return null; this.ema = 0.95 * this.ema + 0.05 * d; } // repeated frame (re-encoded video): skip it
+    if (this.bufs.length) { const q = this.bufs[this.bufs.length - 1].g; let d = 0, m = 0; for (let i = 0; i < g.length; i += 97) { const e = g[i] - q[i]; d += e < 0 ? -e : e; m++; } if (d / m < 0.02) return null; } // repeated frame (re-encoded video): skip it
     if (this.n % 15 === 0) this._drift(g);
     this.bufs.push({ rgba, g, t, shift: this.shift.slice(), valid: this.valid }); this.n++;
     if (this.bufs.length < 3) return null;

@@ -67,7 +67,7 @@ aside{display:flex;flex-direction:column;gap:.7rem}
 #mini{width:100%;max-height:300px;background:var(--paper);border-radius:6px}
 #mini line{stroke:var(--tan);stroke-width:.12;cursor:pointer;stroke-linecap:round}#mini line.done{stroke:var(--in);stroke-width:.2}#mini line.act{stroke:var(--espresso);stroke-width:.34}#mini .hit{stroke:transparent;stroke-width:1.1}
 #mini text{font:.75px var(--text);fill:var(--ink2);text-anchor:middle}
-.active-line{font-family:var(--display);font-size:1.2rem;margin:0;min-height:2.4em}
+.active-line{font-family:var(--display);font-size:1.25rem;margin:0 0 .6rem;min-height:1.5em;position:sticky;top:0;background:var(--white);z-index:2;padding:.3rem 0;border-bottom:3px solid var(--ball);display:inline-block}
 .slider{display:flex;flex-direction:column;font-size:.9rem;color:var(--ink2)}.slider input{accent-color:var(--saddle);width:100%}
 .bar{height:8px;background:var(--paper);border-radius:99px;overflow:hidden;margin:.8rem 0}.bar i{display:block;height:100%;width:0;background:var(--ball);border-right:2px solid var(--espresso);transition:width .2s}
 #preview{max-width:min(100%,360px);max-height:50vh;border-radius:6px;display:block;margin:0 0 1rem;background:var(--paper)}
