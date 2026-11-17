@@ -97,8 +97,12 @@ function renderSel(play) { const box = $('sel'); if (S.sel == null) { box.innerH
   const expl = kind === 'flat' ? t('spinWeak', { d: num(d, 1) }) : t('spinExplain', { a: num(a, 1), b: num(b, 1), d: num(d, 1), k: t(kind), r: num(Math.round(Math.abs(s.rpm) / 50) * 50), s: num(Math.round(s.rpmSd / 50) * 50) });
   box.innerHTML = `<h3>${t('selTitle', { t: fmtTime(s.t) })}</h3><dl><div><dt>${t('result')}</dt><dd>${resLabel(s)}</dd></div><div><dt>${t('speed')}</dt><dd>${num(s.speed)} km/h</dd></div><div><dt>${t('clearance')}</dt><dd>${s.net ? num(s.clear, 2) + ' m' : '–'}</dd></div><div><dt>${t('depth')}</dt><dd>${num(s.land[1], 1)} m <small>±${num(s.landSd[1], 1)}</small></dd></div></dl><p>${s.result === 'net' ? '' : expl}</p>`;
   if (S.fromHistory || !S.file) return;
-  if (!S.url) S.url = URL.createObjectURL(S.file); const v = document.createElement('video'); v.src = S.url; v.controls = true; v.muted = true; v.playsInline = true; box.appendChild(v); const st = Math.max(0, s.t - 0.8), en = s.t + (s.tLand || 1.5) + 0.6;
-  v.addEventListener('loadedmetadata', () => { v.currentTime = st; if (play) v.play().catch(() => {}); }); v.addEventListener('timeupdate', () => { if (v.currentTime > en && !v.paused) v.pause(); }); }
+  if (!S.url) S.url = URL.createObjectURL(S.file); const v = document.createElement('video'); v.src = S.url; v.controls = true; v.muted = true; v.playsInline = true; box.appendChild(v); const st = Math.max(0, s.t - 2), en = s.t + 2; let loop = true, own = false; // replay from 2 s before to 2 s after the hit until the viewer scrubs
+  const jump = () => { own = true; v.currentTime = st; };
+  v.addEventListener('loadedmetadata', () => { jump(); if (play) v.play().catch(() => {}); });
+  v.addEventListener('seeking', () => { if (own) own = false; else loop = false; }); // a seek the viewer made on the bar: hand over control
+  v.addEventListener('timeupdate', () => { if (loop && !v.seeking && (v.currentTime >= en || v.ended)) { jump(); if (v.paused && play) v.play().catch(() => {}); } });
+  v.addEventListener('ended', () => { if (loop) { jump(); v.play().catch(() => {}); } }); }
 $('csv').onclick = () => { const rows = [['time_s', 'type', 'result', 'speed_kmh', 'net_clearance_m', 'spin_rpm', 'spin_sd_rpm', 'land_x_m', 'land_y_m', 'land_y_sd_m', 'hit_x_m', 'hit_y_m', 'hit_z_m']];
   for (const s of S.shots) rows.push([s.t.toFixed(2), s.serve ? 'serve' : 'stroke', s.result, s.speed.toFixed(1), s.net ? s.clear.toFixed(2) : '', s.rpm.toFixed(0), s.rpmSd.toFixed(0), s.land[0].toFixed(2), s.land[1].toFixed(2), s.landSd[1].toFixed(2), ...s.p0.map(v => v.toFixed(2))]);
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' })); a.download = 'baseline-shots.csv'; a.click(); };
