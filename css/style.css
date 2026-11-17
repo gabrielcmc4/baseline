@@ -109,3 +109,4 @@ footer{border-top:1px solid var(--sand);padding:1.2rem clamp(1rem,4vw,3rem);colo
 .danger{border-color:var(--sand)}
 @media (max-width:820px){.who{display:none}.top{flex-wrap:wrap}}
 [hidden]{display:none!important}
+.who2{margin-bottom:1rem}
