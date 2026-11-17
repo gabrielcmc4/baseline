@@ -1,4 +1,4 @@
-// Saibro analysis engine. Pure JavaScript, no DOM: runs in the browser and in Node.
+// Baseline analysis engine. Pure JavaScript, no DOM: runs in the browser and in Node.
 export const COURT = { S: 4.115, D: 5.485, SV: 6.40, LEN: 23.77, NET: 11.885, POST: 6.4, NET_C: 0.914, NET_P: 1.07 };
 COURT.SV = 5.485; // service line distance from baseline
 const G = 9.81, KD = 0.0204, KM = 0.0371, RB = 0.0335;

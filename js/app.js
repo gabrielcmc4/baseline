@@ -57,7 +57,7 @@ async function run() { step(3); const { W, H } = S.info, cam = S.cal.cam, det = 
     $('stage').textContent = t('fitting'); $('eta').textContent = '';
     S.shots = await new Promise((res, rej) => { const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); w.onmessage = e => { if (e.data.progress != null) bar.style.width = (90 + e.data.progress * 10).toFixed(1) + '%'; if (e.data.shots) { w.terminate(); S.meta = e.data.meta; res(e.data.shots); } if (e.data.error) { w.terminate(); rej(new Error(e.data.error)); } }; w.onerror = e => rej(new Error(e.message)); S.abort.signal.addEventListener('abort', () => { w.terminate(); rej(new Error('aborted')); });
       w.postMessage({ frames, camP: cam.p, W, H, mode: S.mode }); });
-    window.__saibro = { shots: S.shots, frames: frames.length, seconds: (performance.now() - start) / 1000, fast: r.fast };
+    window.__baseline = { shots: S.shots, frames: frames.length, seconds: (performance.now() - start) / 1000, fast: r.fast };
     S.sel = null; step(4); renderReport();
   } catch (e) { if (e.message === 'aborted') return; console.error(e); step(2); const m = $('calMsg'); m.className = 'msg bad'; m.textContent = t('errAnalyze', { e: e.message }); }
 }
@@ -86,9 +86,9 @@ function renderSel(play) { const box = $('sel'); if (S.sel == null) { box.innerH
   v.addEventListener('loadedmetadata', () => { v.currentTime = st; if (play) v.play().catch(() => {}); }); v.addEventListener('timeupdate', () => { if (v.currentTime > en && !v.paused) v.pause(); }); }
 $('csv').onclick = () => { const rows = [['time_s', 'type', 'result', 'speed_kmh', 'net_clearance_m', 'spin_rpm', 'spin_sd_rpm', 'land_x_m', 'land_y_m', 'land_y_sd_m', 'hit_x_m', 'hit_y_m', 'hit_z_m']];
   for (const s of S.shots) rows.push([s.t.toFixed(2), s.serve ? 'serve' : 'stroke', s.result, s.speed.toFixed(1), s.net ? s.clear.toFixed(2) : '', s.rpm.toFixed(0), s.rpmSd.toFixed(0), s.land[0].toFixed(2), s.land[1].toFixed(2), s.landSd[1].toFixed(2), ...s.p0.map(v => v.toFixed(2))]);
-  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' })); a.download = 'saibro-shots.csv'; a.click(); };
+  const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' })); a.download = 'baseline-shots.csv'; a.click(); };
 $('print').onclick = () => window.print(); $('again').onclick = () => { if (S.url) URL.revokeObjectURL(S.url); S.url = null; S.shots = []; $('file').value = ''; step(1); };
 // test hook: lets an automated check supply court lines without tapping
-window.__saibroSetLines = raw => { S.raw = raw; S.lines = {}; for (const id in raw) S.lines[id] = refineLine(S.img, raw[id][0], raw[id][1], 1.6 * scale()); S.active = null; drawFrame(); drawMini(); };
+window.__baselineSetLines = raw => { S.raw = raw; S.lines = {}; for (const id in raw) S.lines[id] = refineLine(S.img, raw[id][0], raw[id][1], 1.6 * scale()); S.active = null; drawFrame(); drawMini(); };
 if (window.self !== window.top) { $('csv').hidden = true; $('print').hidden = true; } // embedded previews block downloads and printing
 setLang(getLang()); step(1); drawMini();

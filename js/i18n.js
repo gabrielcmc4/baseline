@@ -44,12 +44,12 @@ const D = {
   depthCal: ['A profundidade foi calibrada com {n} bolas que morreram na rede: nelas a posição da bola é conhecida com exatidão.', 'Depth was calibrated using {n} balls that died in the net, where the ball position is known exactly.'],
   depthDefault: ['Não houve bolas na rede suficientes para calibrar a profundidade; foi usado um valor padrão, então as distâncias podem estar deslocadas em 1 a 2 m.', 'There were not enough net balls to calibrate depth; a default was used, so distances may be shifted by 1 to 2 m.'],
   csv: ['Baixar tabela (CSV)', 'Download table (CSV)'], print: ['Imprimir ou salvar PDF', 'Print or save PDF'], another: ['Analisar outro vídeo', 'Analyze another video'],
-  footer: ['Saibro roda inteiro no navegador. Nenhum vídeo é enviado para servidor algum.', 'Saibro runs entirely in the browser. No video is sent to any server.'],
+  footer: ['Baseline roda inteiro no navegador. Nenhum vídeo é enviado para servidor algum.', 'Baseline runs entirely in the browser. No video is sent to any server.'],
 };
-let lang = (localStorage.getItem('saibro-lang') || ((navigator.language || 'pt').toLowerCase().startsWith('pt') ? 'pt' : 'en'));
+let lang = (localStorage.getItem('baseline-lang') || ((navigator.language || 'pt').toLowerCase().startsWith('pt') ? 'pt' : 'en'));
 export const getLang = () => lang;
 export function t(k, v) { const e = D[k]; let s = e ? e[lang === 'pt' ? 0 : 1] : k; if (v) for (const q in v) s = s.replace('{' + q + '}', v[q]); return s; }
-export function setLang(l) { lang = l; try { localStorage.setItem('saibro-lang', l); } catch (e) {} document.documentElement.lang = l === 'pt' ? 'pt-BR' : 'en'; apply(); }
+export function setLang(l) { lang = l; try { localStorage.setItem('baseline-lang', l); } catch (e) {} document.documentElement.lang = l === 'pt' ? 'pt-BR' : 'en'; apply(); }
 export function apply(root = document) { root.querySelectorAll('[data-i18n]').forEach(el => { el.textContent = t(el.dataset.i18n); });
   root.querySelectorAll('[data-i18n-list]').forEach(el => { el.innerHTML = ''; t(el.dataset.i18nList).split('|').forEach(s => { const li = document.createElement('li'); li.textContent = s; el.appendChild(li); }); });
   document.querySelectorAll('[data-lang]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang))); }

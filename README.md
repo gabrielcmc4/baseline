@@ -1,4 +1,4 @@
-# Saibro
+# Baseline
 
 Tennis shot analysis from a single video, running entirely in the browser. No server, no account, no AI service: the video never leaves the device.
 
