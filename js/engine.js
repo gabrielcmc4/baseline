@@ -300,20 +300,20 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     return fit ? { fit, t, uv, n, prior } : null; };
   // Depth self-calibration. A ball that dies in the net was exactly at the net when it was last seen, which tells how far in front of the
   // hitter's feet the tracked flight really starts. Without enough net balls the default offset is used.
-  const meta = { yOff, netRefs: 0, candidates: cands.length, fps };
+  const meta = { yOff, netRefs: 0, candidates: cands.length, fps, segments: segs.length, rej: { nofit: 0, rms: 0, speed: 0, noland: 0, depth: 0 } };
   if (!only) { const refs = obs.filter(o => o.fg && o.t.length >= 8 && o.zNet > 0.05 && o.zNet < 1.12).slice(0, 40);
     const endY = off => { const ys = []; for (const o of refs) { const r = fitOne(o, off); if (!r || r.n < o.t.length || r.fit.rms > 3) continue; const y = simulateAt(r.fit.x, [r.t[r.n - 1]])[0][1]; if (Math.abs(y - COURT.NET) < 3.5) ys.push(y); } ys.sort((a, b) => a - b); return ys.length >= 4 ? [ys[ys.length >> 1], ys.length] : null; };
     if (refs.length >= 4) { const a = endY(yOff); if (a) { const b = endY(yOff + 0.8); let off = yOff; if (b && Math.abs(b[0] - a[0]) > 0.05) off = yOff + 0.8 * (COURT.NET - 0.1 - a[0]) / (b[0] - a[0]); meta.yOff = Math.max(0.6, Math.min(2.2, off)); meta.netRefs = a[1]; } } }
   const shots = [];
   obs.forEach((o, ci) => { if (onProgress) onProgress(ci / obs.length); if (only && !only.some(q => Math.abs(q - o.t0) < 0.3)) return;
-    const r = fitOne(o, meta.yOff); if (!r) return; let { fit, t, uv, n, prior } = r; const fg = o.fg, t0 = o.t0; let netHit = false;
+    const r = fitOne(o, meta.yOff); if (!r) { meta.rej.nofit++; return; } let { fit, t, uv, n, prior } = r; const fg = o.fg, t0 = o.t0; let netHit = false;
     if (fg && n === o.t.length && o.zNet > 0.05 && o.zNet < 1.12 && fit.rms <= 3 && Math.abs(simulateAt(fit.x, [t[n - 1]])[0][1] - COURT.NET) < 2.5) { // died in the net: pin the last point to the net plane
       prior = { ...prior, anchorNet: true }; const f2 = fitFlight(cam, t, uv, prior, s, true, fit.x); if (f2 && f2.rms <= 3) { fit = f2; netHit = true; } }
-    if (fit.rms > 3) return; const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 30 || speed > 230 || x[4] < 6) return;
-    const sum = flightSummary(x); if (!sum.land) return;
+    if (fit.rms > 3) { meta.rej.rms++; return; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 30 || speed > 230 || x[4] < 6) { meta.rej.speed++; return; }
+    const sum = flightSummary(x); if (!sum.land) { meta.rej.noland++; return; }
     const flat = fitFlight(cam, t, uv, prior, s, false, x);
     const sd = covariance(fit, y => { const q = flightSummary(y); return [q.land ? q.land[0] : 0, q.land ? q.land[1] : 0, q.net ? q.net[2] : 0, y[6]]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9];
-    if (sd[1] > 3) return;
+    if (sd[1] > 3) { meta.rej.depth++; return; }
     const C = COURT, [lx, ly] = sum.land, serve = x[2] > 2.0 && x[1] < 1.5; let result, target = null;
     if (netHit || !sum.net || sum.clear < 0) result = 'net';
     else if (mode === 'serve' || (mode === 'match' && serve)) { const left = x[0] > 0; target = left ? 'left' : 'right';
