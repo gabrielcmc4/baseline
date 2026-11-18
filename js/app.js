@@ -74,7 +74,7 @@ function fit(bar) { const cam = S.cal.cam, { W, H } = S.info; return new Promise
 async function changeMode(m) { if (!S.frames || m === S.mode) return; const sel = $('modeSel'); sel.disabled = true; $('modeMsg').textContent = t('fitting'); const old = S.mode; S.mode = m;
   try { S.shots = await fit(null); crumb('mode ' + m + ' shots ' + S.shots.length); S.sel = null; S.view = 'me'; S.saved = false; window.__baseline = { ...(window.__baseline || {}), shots: S.shots }; renderReport(); if (currentUser()) save(); } catch (e) { console.error(e); S.mode = old; sel.value = old; }
   sel.disabled = false; $('modeMsg').textContent = ''; }
-async function run() { crumb('run mode ' + S.mode); step(3); const { W, H } = S.info, cam = S.cal.cam, pv = $('preview'), px = pv.getContext('2d'); pv.width = W; pv.height = H;
+async function run() { crumb('run mode ' + S.mode); step(3); $('bar').style.width = '0%'; $('eta').textContent = ''; const { W, H } = S.info, cam = S.cal.cam, pv = $('preview'), px = pv.getContext('2d'); pv.width = W; pv.height = H;
   S.abort = new AbortController(); $('stage').textContent = t('reading'); $('eta').textContent = ''; const bar = $('bar'), start = performance.now(); let k = 0, lastP = 0;
   S.info.video.pause(); S.slow = !(window.VideoDecoder && /\.(mp4|mov|m4v)$/i.test(S.file.name));
   crumb('decode start');
@@ -84,13 +84,19 @@ async function run() { crumb('run mode ' + S.mode); step(3); const { W, H } = S.
     if (!S.slow && !window.__baselineNoScanWorker) try { // normal path: everything heavy happens in a worker
       let unlock = null; if (navigator.locks) navigator.locks.request('baseline-analysis-' + Math.random(), () => new Promise(r => { unlock = r; })).catch(() => {}); // holding a lock tells the browser this tab is working, so it is not frozen while in the background
       try {
-      r = await new Promise((res, rej) => { const w = new Worker(new URL('./scan.js', import.meta.url), { type: 'module' }); const stop = () => { w.terminate(); rej(new Error('aborted')); }; S.abort.signal.addEventListener('abort', stop);
-        let seenP = -1; const ping = setInterval(() => { if (lastP === seenP) w.postMessage({ ping: 1 }); seenP = lastP; }, 20000), end = () => clearInterval(ping); S.abort.signal.addEventListener('abort', end); // no progress for 20 s: ask the worker where it is
-        w.onmessage = e => { const d = e.data; if (d.pong) { crumb('no progress: ' + d.pong); return; } if (d.done || d.error) end(); if (d.crumb) crumb(d.crumb); else if (d.preview) ring(d.preview, d.balls); else if (d.progress != null) onP(d.progress); else if (d.done) { w.terminate(); res(d); } else if (d.error) { w.terminate(); const er = new Error(d.error); er.got = d.got; rej(er); } };
-        w.onerror = e => { w.terminate(); const er = new Error(e.message || 'worker'); er.got = 0; rej(er); };
-        w.postMessage({ file: S.file, W, H, duration: S.info.duration, camP: Array.from(cam.p), refPts: Object.values(S.lines).flat() }); });
+      // the video is split into shares at key frames and each share is read by its own worker: on a machine with several cores this is the biggest saving of all
+      const parts = S.info.duration < 90 || window.__baselineParts === 1 ? 1 : Math.max(1, Math.min(4, window.__baselineParts || Math.floor((navigator.hardwareConcurrency || 2) / 3))); crumb('scan workers ' + parts);
+      r = await new Promise((res, rej) => { const ws = [], prog = new Array(parts).fill(0), outp = new Array(parts).fill(null); let left = parts, dead = false; const killAll = () => { dead = true; for (const w of ws) w.terminate(); };
+        S.abort.signal.addEventListener('abort', () => { killAll(); rej(new Error('aborted')); });
+        let seenP = -1; const ping = setInterval(() => { if (lastP === seenP && ws[0]) ws[0].postMessage({ ping: 1 }); seenP = lastP; }, 20000), end = () => clearInterval(ping); S.abort.signal.addEventListener('abort', end); // no progress for 20 s: ask a worker where it is
+        for (let pt = 0; pt < parts; pt++) { const w = new Worker(new URL('./scan.js', import.meta.url), { type: 'module' }); ws.push(w);
+          w.onmessage = e => { const d = e.data; if (dead) return; if (d.pong) { crumb('no progress: ' + d.pong); return; } if (d.crumb) crumb(d.crumb); else if (d.preview) { if (d.part === 0 || prog[0] >= 1) ring(d.preview, d.balls); } else if (d.progress != null) { prog[d.part] = d.progress; onP(prog.reduce((a, b) => a + b, 0) / parts); }
+            else if (d.done) { outp[d.part] = d; w.terminate(); if (--left === 0) { end(); const fr = []; for (const o of outp) for (const f of o.frames) fr.push(f); res({ frames: fr, fps: outp[0].fps, maxShift: Math.max(...outp.map(o => o.maxShift)), busy: outp.reduce((a, o) => a + o.busy, 0), skipped: outp.reduce((a, o) => a + o.skipped, 0) }); } }
+            else if (d.error) { end(); killAll(); const er = new Error(d.error); er.got = d.got + prog.reduce((a, b) => a + b, 0); rej(er); } };
+          w.onerror = e => { end(); killAll(); const er = new Error(e.message || 'worker'); er.got = 0; rej(er); };
+          w.postMessage({ file: S.file, W, H, duration: S.info.duration, camP: Array.from(cam.p), refPts: Object.values(S.lines).flat(), range: { part: pt, parts }, skipIdle: !window.__baselineNoSkip }); } });
       } finally { if (unlock) unlock(); }
-      frames = r.frames; S.info.fps = r.fps; r.fast = true; crumb('scan done frames ' + frames.length + ' moved ' + r.maxShift + 'px busy ' + r.busy);
+      frames = r.frames; S.info.fps = r.fps; r.fast = true; crumb('scan done frames ' + frames.length + ' moved ' + r.maxShift + 'px busy ' + r.busy + ' idle frames skipped ' + r.skipped + ' in ' + Math.round((performance.now() - start) / 1000) + 's');
     } catch (e) { if (e.message === 'aborted' || e.got > 0) throw e; crumb('scan worker failed: ' + e.message); r = null; }
     if (!r) { const det = new Detector(W, H, cam, Object.values(S.lines).flat()); frames = []; lastP = 0; // fallback on the page itself (other containers, browsers without WebCodecs)
       r = await decodeAll(S.file, S.info, (im, tm) => { const f = det.push(im.data, tm); if (f) frames.push(f); if (++k % 20 === 0) ring(im.data, f ? f.c : []); }, onP, S.abort.signal); }

@@ -84,7 +84,7 @@ export async function parseMp4(file) {
     return { codec, description, width, height, ang, timescale, n, size, offset, dts, cts, sync, cmin, duration: tt / timescale, summary }; }
   throw new Error('no usable video track (' + summary.join(',') + ')');
 }
-export async function decodeDirect(file, info, onFrame, onProgress, signal) {
+export async function decodeDirect(file, info, onFrame, onProgress, signal, range) { // range {part, parts}: decode only that share of the video (cut at key frames), so several workers can each take a share
   const m = await parseMp4(file), { W, H } = info, fps = m.n / (m.duration || info.duration), stride = fps > 75 ? Math.round(fps / 60) : 1; info.fps = fps / stride;
   const turned = (m.width > m.height) !== (W > H) && W !== H, rot = turned ? (m.ang === 270 ? 270 : 90) : (m.ang === 180 ? 180 : 0);
   globalThis.__crumb?.('direct ' + m.summary.join(',') + ' ' + m.codec + ' ' + m.width + 'x' + m.height + ' samples ' + m.n + ' fps ' + fps.toFixed(1) + ' rot ' + rot);
@@ -105,11 +105,12 @@ export async function decodeDirect(file, info, onFrame, onProgress, signal) {
         if (pick < 0 && count >= 4) { cost[which] += performance.now() - tr; tried[which]++; if (tried[0] >= 6 && tried[1] >= 6) { pick = cost[1] / tried[1] < 0.8 * cost[0] / tried[0] ? 1 : 0; globalThis.__crumb?.('pixels: memory canvas ' + (cost[0] / tried[0]).toFixed(1) + 'ms, graphics canvas ' + (cost[1] / tried[1]).toFixed(1) + 'ms per frame, using ' + (pick ? 'graphics' : 'memory')); } }
         onFrame(im, fr.timestamp / 1e6); }
       if (count === 0 || count % 300 === 0) globalThis.__crumb?.('frame ' + count + ' ' + fr.format + ' pending ' + pending);
-      count++; onProgress(count / m.n); } catch (e) { failed = e; } finally { fr.close(); } };
+      count++; onProgress(Math.min(1, count / span)); } catch (e) { failed = e; } finally { fr.close(); } };
   dec.configure(cfg);
   let lastOut = performance.now(), lastCount = 0, phase = '', stalled = false; const dog = setInterval(() => { if (count !== lastCount) { lastCount = count; lastOut = performance.now(); } else if (performance.now() - lastOut > 15000) { globalThis.__crumb?.('stalled at sample ' + i + '/' + m.n + ' frames out ' + count + ' pending ' + pending + ' queue ' + dec.decodeQueueSize + ' state ' + dec.state + ' phase ' + phase); lastOut = performance.now(); stalled = true; } }, 5000);
-  let win = null, w0 = 0, i = 0; info.state = () => 'sample ' + i + '/' + m.n + ' out ' + count + ' pending ' + pending + ' queue ' + dec.decodeQueueSize + ' ' + dec.state + ' ' + phase + (failed ? ' failed ' + failed.message : ''); while (i < m.n && !m.sync[i]) i++; // decoding has to start on a key frame
-  for (; i < m.n; i++) { if (signal?.aborted) { try { dec.close(); } catch (e) {} throw new Error('aborted'); } if (failed) throw failed; const o = m.offset[i], sz = m.size[i]; if (!sz) continue;
+  let win = null, w0 = 0, i = 0; info.state = () => 'sample ' + i + '/' + m.n + ' out ' + count + ' pending ' + pending + ' queue ' + dec.decodeQueueSize + ' ' + dec.state + ' ' + phase + (failed ? ' failed ' + failed.message : ''); let i1 = m.n; if (range && range.parts > 1) { const at = k => { let j = Math.round(m.n * k / range.parts); while (j < m.n && !m.sync[j]) j++; return j; }; i = range.part ? at(range.part) : 0; i1 = range.part + 1 < range.parts ? at(range.part + 1) : m.n; } const i0 = i, span = Math.max(1, i1 - i0);
+  while (i < i1 && !m.sync[i]) i++; // decoding has to start on a key frame
+  for (; i < i1; i++) { if (signal?.aborted) { try { dec.close(); } catch (e) {} throw new Error('aborted'); } if (failed) throw failed; const o = m.offset[i], sz = m.size[i]; if (!sz) continue;
     if (!win || o < w0 || o + sz > w0 + win.byteLength) { phase = 'read ' + o; w0 = o; win = new Uint8Array(await file.slice(o, o + Math.max(sz, 4 * 1024 * 1024)).arrayBuffer()); if (win.byteLength < sz) break; }
     phase = 'decode'; pending++; dec.decode(new EncodedVideoChunk({ type: m.sync[i] ? 'key' : 'delta', timestamp: Math.round((m.cts[i] - m.cmin) * 1e6 / m.timescale), data: win.subarray(o - w0, o - w0 + sz) }));
     // wait for the decoder without timers: browsers slow timers down to one per minute in a tab left in the background, which would stall a long analysis
