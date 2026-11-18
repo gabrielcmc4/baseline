@@ -50,8 +50,65 @@ async function decodePlayback(file, info, onFrame, onProgress, signal) {
     v.onended = () => res(); v.requestVideoFrameCallback(step); v.play().catch(rej); });
   info.fps = n / info.duration; return n;
 }
+
+// ---- own reader for MP4/MOV files: finds the video track and its sample table without loading the file (some phone exports made the general-purpose library hang)
+export async function parseMp4(file) {
+  const rd = async (a, n) => new DataView(await file.slice(a, a + n).arrayBuffer()); let pos = 0, moov = null;
+  while (pos + 8 <= file.size) { const h = await rd(pos, 16); if (h.byteLength < 8) break; let size = h.getUint32(0), hdr = 8; const type = String.fromCharCode(h.getUint8(4), h.getUint8(5), h.getUint8(6), h.getUint8(7));
+    if (size === 1 && h.byteLength >= 16) { size = h.getUint32(8) * 4294967296 + h.getUint32(12); hdr = 16; } else if (size === 0) size = file.size - pos; if (size < hdr) break;
+    if (type === 'moov') { if (size > 3e8) throw new Error('moov too large'); moov = await rd(pos + hdr, size - hdr); break; } pos += size; }
+  if (!moov) throw new Error('no moov');
+  const kids = (v, a, b) => { const out = []; while (a + 8 <= b) { let size = v.getUint32(a), hdr = 8; const type = String.fromCharCode(v.getUint8(a + 4), v.getUint8(a + 5), v.getUint8(a + 6), v.getUint8(a + 7)); if (size === 1) { size = v.getUint32(a + 8) * 4294967296 + v.getUint32(a + 12); hdr = 16; } else if (size === 0) size = b - a; if (size < hdr || a + size > b) break; out.push({ type, a: a + hdr, b: a + size }); a += size; } return out; };
+  const find = (list, t) => list.find(x => x.type === t), v = moov, summary = [];
+  for (const trak of kids(v, 0, v.byteLength).filter(x => x.type === 'trak')) { const tk = kids(v, trak.a, trak.b), mdia = find(tk, 'mdia'); if (!mdia) continue; const mk = kids(v, mdia.a, mdia.b), hdlr = find(mk, 'hdlr'), mdhd = find(mk, 'mdhd'), minf = find(mk, 'minf'); if (!hdlr || !mdhd || !minf) continue;
+    const handler = String.fromCharCode(v.getUint8(hdlr.a + 8), v.getUint8(hdlr.a + 9), v.getUint8(hdlr.a + 10), v.getUint8(hdlr.a + 11)); const stbl = find(kids(v, minf.a, minf.b), 'stbl'); if (!stbl) continue; const sk = kids(v, stbl.a, stbl.b), stsd = find(sk, 'stsd'); if (!stsd) continue;
+    const ent = kids(v, stsd.a + 8, stsd.b)[0]; summary.push(handler + ':' + (ent ? ent.type : '?')); if (handler !== 'vide' || !ent) continue;
+    const width = v.getUint16(ent.a + 24), height = v.getUint16(ent.a + 26), cfgs = kids(v, ent.a + 78, ent.b), cb = find(cfgs, 'hvcC') || find(cfgs, 'avcC'); if (!cb) continue;
+    const description = new Uint8Array(v.buffer.slice(v.byteOffset + cb.a, v.byteOffset + cb.b)), hx = n => n.toString(16).padStart(2, '0'); let codec;
+    if (cb.type === 'avcC') codec = 'avc1.' + hx(description[1]) + hx(description[2]) + hx(description[3]);
+    else { const b1 = description[1], space = ['', 'A', 'B', 'C'][b1 >> 6], tier = (b1 >> 5) & 1, prof = b1 & 31; let compat = (description[2] << 24 | description[3] << 16 | description[4] << 8 | description[5]) >>> 0, rev = 0; for (let i = 0; i < 32; i++) { rev = (rev << 1 | (compat & 1)) >>> 0; compat >>>= 1; }
+      const cons = Array.from(description.slice(6, 12)); while (cons.length && cons[cons.length - 1] === 0) cons.pop();
+      codec = (ent.type === 'hev1' || ent.type === 'dvhe' ? 'hev1' : 'hvc1') + '.' + space + prof + '.' + rev.toString(16) + '.' + (tier ? 'H' : 'L') + description[12] + cons.map(c => '.' + c.toString(16)).join(''); }
+    const timescale = v.getUint32(mdhd.a + (v.getUint8(mdhd.a) === 1 ? 20 : 12)); const tkhd = find(tk, 'tkhd'); let ang = 0; if (tkhd) { const mo = tkhd.a + (v.getUint8(tkhd.a) === 1 ? 52 : 40); ang = Math.round(Math.atan2(v.getInt32(mo + 4), v.getInt32(mo)) * 180 / Math.PI); ang = ((ang % 360) + 360) % 360; }
+    const stsz = find(sk, 'stsz'), stco = find(sk, 'stco'), co64 = find(sk, 'co64'), stsc = find(sk, 'stsc'), stts = find(sk, 'stts'), ctts = find(sk, 'ctts'), stss = find(sk, 'stss'); if (!stsz || !(stco || co64) || !stsc || !stts) continue;
+    const uni = v.getUint32(stsz.a + 4), n = v.getUint32(stsz.a + 8); if (!n || n > 5e6) continue; const size = new Uint32Array(n); for (let i = 0; i < n; i++) size[i] = uni || v.getUint32(stsz.a + 12 + 4 * i);
+    const co = stco || co64, nc = v.getUint32(co.a + 4), chunk = new Float64Array(nc); for (let i = 0; i < nc; i++) chunk[i] = stco ? v.getUint32(co.a + 8 + 4 * i) : v.getUint32(co.a + 8 + 8 * i) * 4294967296 + v.getUint32(co.a + 12 + 8 * i);
+    const offset = new Float64Array(n), ne = v.getUint32(stsc.a + 4); let si = 0;
+    for (let e = 0; e < ne && si < n; e++) { const first = v.getUint32(stsc.a + 8 + 12 * e), per = v.getUint32(stsc.a + 12 + 12 * e), next = e + 1 < ne ? v.getUint32(stsc.a + 8 + 12 * (e + 1)) : nc + 1; if (!per || first < 1) break;
+      for (let c = first; c < next && c <= nc && si < n; c++) { let o = chunk[c - 1]; for (let k = 0; k < per && si < n; k++) { offset[si] = o; o += size[si]; si++; } } }
+    if (si < n) continue;
+    const dts = new Float64Array(n), cts = new Float64Array(n), nt = v.getUint32(stts.a + 4); let ti = 0, tt = 0; for (let e = 0; e < nt && ti < n; e++) { const cnt = v.getUint32(stts.a + 8 + 8 * e), d = v.getUint32(stts.a + 12 + 8 * e); for (let k = 0; k < cnt && ti < n; k++) { dts[ti++] = tt; tt += d; } } for (; ti < n; ti++) dts[ti] = tt;
+    cts.set(dts); if (ctts) { const nn = v.getUint32(ctts.a + 4); let ci = 0; for (let e = 0; e < nn && ci < n; e++) { const cnt = v.getUint32(ctts.a + 8 + 8 * e), d = v.getInt32(ctts.a + 12 + 8 * e); for (let k = 0; k < cnt && ci < n; k++) cts[ci++] += d; } }
+    const sync = new Uint8Array(n); if (stss) { const ns = v.getUint32(stss.a + 4); for (let i = 0; i < ns; i++) { const k = v.getUint32(stss.a + 8 + 4 * i); if (k >= 1 && k <= n) sync[k - 1] = 1; } } else sync.fill(1);
+    let cmin = Infinity; for (let i = 0; i < Math.min(n, 64); i++) if (cts[i] < cmin) cmin = cts[i];
+    return { codec, description, width, height, ang, timescale, n, size, offset, dts, cts, sync, cmin, duration: tt / timescale, summary }; }
+  throw new Error('no usable video track (' + summary.join(',') + ')');
+}
+async function decodeDirect(file, info, onFrame, onProgress, signal) {
+  const m = await parseMp4(file), { W, H } = info, fps = m.n / (m.duration || info.duration), stride = fps > 75 ? Math.round(fps / 60) : 1; info.fps = fps / stride;
+  const turned = (m.width > m.height) !== (W > H) && W !== H, rot = turned ? (m.ang === 270 ? 270 : 90) : (m.ang === 180 ? 180 : 0);
+  globalThis.__crumb?.('direct ' + m.summary.join(',') + ' ' + m.codec + ' ' + m.width + 'x' + m.height + ' samples ' + m.n + ' fps ' + fps.toFixed(1) + ' rot ' + rot);
+  const cfg = { codec: m.codec, codedWidth: m.width, codedHeight: m.height, description: m.description }, sup = await VideoDecoder.isConfigSupported(cfg); globalThis.__crumb?.('codec supported ' + sup.supported); if (!sup.supported) throw new Error('codec');
+  const canvas = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H }), ctx = canvas.getContext('2d', { willReadFrequently: true });
+  let failed = null, pending = 0, count = 0;
+  const dec = new VideoDecoder({ error: e => { failed = e; globalThis.__crumb?.('decoder error ' + e.message); }, output: fr => { try {
+      if (count % stride === 0) { ctx.save();
+        if (rot === 90) { ctx.translate(W, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); } else if (rot === 270) { ctx.translate(0, H); ctx.rotate(-Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); }
+        else if (rot === 180) { ctx.translate(W, H); ctx.rotate(Math.PI); ctx.drawImage(fr, 0, 0, W, H); } else ctx.drawImage(fr, 0, 0, W, H);
+        ctx.restore(); onFrame(ctx.getImageData(0, 0, W, H), fr.timestamp / 1e6); }
+      if (count === 0 || count % 300 === 0) globalThis.__crumb?.('frame ' + count + ' ' + fr.format + ' pending ' + pending);
+      count++; onProgress(count / m.n); } catch (e) { failed = e; } finally { fr.close(); pending--; } } });
+  dec.configure(cfg);
+  let win = null, w0 = 0, i = 0; while (i < m.n && !m.sync[i]) i++; // decoding has to start on a key frame
+  for (; i < m.n; i++) { if (signal?.aborted) { try { dec.close(); } catch (e) {} throw new Error('aborted'); } if (failed) throw failed; const o = m.offset[i], sz = m.size[i]; if (!sz) continue;
+    if (!win || o < w0 || o + sz > w0 + win.byteLength) { w0 = o; win = new Uint8Array(await file.slice(o, o + Math.max(sz, 4 * 1024 * 1024)).arrayBuffer()); if (win.byteLength < sz) break; }
+    pending++; dec.decode(new EncodedVideoChunk({ type: m.sync[i] ? 'key' : 'delta', timestamp: Math.round((m.cts[i] - m.cmin) * 1e6 / m.timescale), data: win.subarray(o - w0, o - w0 + sz) }));
+    if (pending > 12 || dec.decodeQueueSize > 12) await new Promise(r => setTimeout(r, 0)); while (pending > 24 && !failed) await new Promise(r => setTimeout(r, 4)); }
+  await dec.flush(); dec.close(); if (failed) throw failed; return count;
+}
 export async function decodeAll(file, info, onFrame, onProgress, signal) {
   if (typeof VideoDecoder !== 'undefined' && typeof MP4Box !== 'undefined') { let got = 0; const wrap = (im, t) => { got++; onFrame(im, t); };
-    try { return { frames: await decodeWebCodecs(file, info, wrap, onProgress, signal), fast: true }; } catch (e) { if (e.message === 'aborted' || got > 0) throw e; console.warn('WebCodecs path failed, using playback', e); } }
+    let direct = true; try { return { frames: await decodeDirect(file, info, wrap, onProgress, signal), fast: true }; } catch (e) { if (e.message === 'aborted' || got > 0) throw e; globalThis.__crumb?.('direct failed: ' + e.message); console.warn('direct reader failed', e); if (e.message === 'codec') direct = false; }
+    if (direct && file.size < 6e8) try { return { frames: await decodeWebCodecs(file, info, wrap, onProgress, signal), fast: true }; } catch (e) { if (e.message === 'aborted' || got > 0) throw e; console.warn('WebCodecs path failed, using playback', e); } }
   return { frames: await decodePlayback(file, info, onFrame, onProgress, signal), fast: false };
 }
