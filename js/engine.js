@@ -282,7 +282,12 @@ function covariance(fit, fnOut, h) { // propagate fit covariance to derived quan
 // frames: [{t, c, blobs, valid}], mode: 'coach' | 'serve' | 'match'
 // The ball is found with two colour tests. The strict one is clean when the ball is big and well lit; the weaker one is needed when the ball is
 // small or washed out (camera far away) but lets in more clutter. Both are analyzed and the one that yields more valid shots is kept.
-export function analyze(frames, cam, opts = {}) { const p = opts.onProgress, a = analyzeCore(frames, cam, { ...opts, onProgress: p && (v => p(v / 2)) });
+// Places where "balls" keep turning up all through the video are not balls (leaves moving in the wind, a flag, a light): a real ball crosses any one spot only now and then.
+function quiet(frames) { const G = 20, cnt = new Map(), key = q => ((q[1] / G) | 0) * 4096 + ((q[0] / G) | 0); let n = 0; for (const f of frames) { n++; const seen = new Set(); for (const q of f.c2 || f.c) { const k = key(q); if (!seen.has(k)) { seen.add(k); cnt.set(k, (cnt.get(k) || 0) + 1); } } }
+  const lim = Math.max(+(globalThis.process?.env?.QMIN || 60), 0.03 * n), bad = new Set(); for (const [k, v] of cnt) if (v > lim) bad.add(k); if (!bad.size) return { frames, cells: 0, removed: 0 };
+  let removed = 0; const keep = q => { if (bad.has(key(q))) { removed++; return false; } return true; }; return { frames: frames.map(f => ({ ...f, c: f.c.filter(keep), c2: f.c2 && f.c2.filter(keep) })), cells: bad.size, removed }; }
+export function analyze(frames0, cam, opts = {}) { const qz = quiet(frames0), frames = qz.frames, out = analyze2(frames, cam, opts); out.meta.noisy = [qz.cells, qz.removed]; return out; }
+function analyze2(frames, cam, opts = {}) { const p = opts.onProgress, a = analyzeCore(frames, cam, { ...opts, onProgress: p && (v => p(v / 2)) });
   if (opts.only || !frames.some(f => f.c2 && f.c2.length > f.c.length)) { a.meta.colour = 'strict'; return a; }
   const b = analyzeCore(frames.map(f => ({ ...f, c: f.c2 || f.c })), cam, { ...opts, onProgress: p && (v => p(0.5 + v / 2)) });
   // near player's shots: whichever colour test gives clearly more; far-side shots (small, far ball): likewise, chosen separately

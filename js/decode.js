@@ -89,13 +89,18 @@ export async function decodeDirect(file, info, onFrame, onProgress, signal) {
   const turned = (m.width > m.height) !== (W > H) && W !== H, rot = turned ? (m.ang === 270 ? 270 : 90) : (m.ang === 180 ? 180 : 0);
   globalThis.__crumb?.('direct ' + m.summary.join(',') + ' ' + m.codec + ' ' + m.width + 'x' + m.height + ' samples ' + m.n + ' fps ' + fps.toFixed(1) + ' rot ' + rot);
   const cfg = { codec: m.codec, codedWidth: m.width, codedHeight: m.height, description: m.description }, sup = await VideoDecoder.isConfigSupported(cfg); globalThis.__crumb?.('codec supported ' + sup.supported); if (!sup.supported) throw new Error('codec');
-  const canvas = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H }), ctx = canvas.getContext('2d', { willReadFrequently: true });
+  // two ways to get the pixels of a frame: a canvas kept in memory, or one on the graphics card read back afterwards. Which is faster depends on the machine and the video (10-bit phone video decoded by the graphics card is very slow the first way), so both are timed on the first frames.
+  const mk = soft => { const c = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H }); return c.getContext('2d', soft ? { willReadFrequently: true } : {}); };
+  const ctxs = [mk(true), mk(false)], cost = [0, 0], tried = [0, 0]; let pick = -1, ctx = ctxs[0];
   let failed = null, pending = 0, count = 0, wake = null;
   const dec = new VideoDecoder({ error: e => { failed = e; globalThis.__crumb?.('decoder error ' + e.message); if (wake) { const w = wake; wake = null; w(); } }, output: fr => { try {
+      const which = pick >= 0 ? pick : (count >> 1) % 2, tr = performance.now(); ctx = ctxs[which];
       if (count % stride === 0) { ctx.save();
         if (rot === 90) { ctx.translate(W, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); } else if (rot === 270) { ctx.translate(0, H); ctx.rotate(-Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); }
         else if (rot === 180) { ctx.translate(W, H); ctx.rotate(Math.PI); ctx.drawImage(fr, 0, 0, W, H); } else ctx.drawImage(fr, 0, 0, W, H);
-        ctx.restore(); onFrame(ctx.getImageData(0, 0, W, H), fr.timestamp / 1e6); }
+        ctx.restore(); const im = ctx.getImageData(0, 0, W, H);
+        if (pick < 0 && count >= 4) { cost[which] += performance.now() - tr; tried[which]++; if (tried[0] >= 6 && tried[1] >= 6) { pick = cost[1] / tried[1] < 0.8 * cost[0] / tried[0] ? 1 : 0; globalThis.__crumb?.('pixels: memory canvas ' + (cost[0] / tried[0]).toFixed(1) + 'ms, graphics canvas ' + (cost[1] / tried[1]).toFixed(1) + 'ms per frame, using ' + (pick ? 'graphics' : 'memory')); } }
+        onFrame(im, fr.timestamp / 1e6); }
       if (count === 0 || count % 300 === 0) globalThis.__crumb?.('frame ' + count + ' ' + fr.format + ' pending ' + pending);
       count++; onProgress(count / m.n); } catch (e) { failed = e; } finally { fr.close(); pending--; if (wake) { const w = wake; wake = null; w(); } } } });
   dec.configure(cfg);
