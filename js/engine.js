@@ -146,7 +146,7 @@ export class Detector {
       if (Math.abs(b[0] - a[0]) > 1) yb = a[1] + (x - a[0]) * (b[1] - a[1]) / (b[0] - a[0]);
       this.cut[x] = Math.max(0, Math.min(H - 2, Math.round(yb - 10 * this.s))); this.tape[x] = Math.round(cam.tapeY(x) + 20 * this.s);
     }
-    this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.mt = 15; this.n = 0; this.shift = [0, 0]; this.valid = true; this.maxShift = 0; this.busy = 0;
+    this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.mt = 15; this.n = 0; this.shift = [0, 0]; this.valid = true; this.maxShift = 0; this.busy = 0; this.dropped = 0;
     this.ref = refPts || []; this.refScore = null; this.cw = Math.ceil(W / 4); this.ch = Math.ceil(H / 4); this.coarse = new Uint16Array(this.cw * this.ch);
   }
   _gray(rgba) { const W = this.W, H = this.H, g = new Uint8Array(W * H), t = new Uint8Array(W * H);
@@ -200,6 +200,9 @@ export class Detector {
         if (!strict && (x1 - x0 > 11 * this.s || y1 - y0 > 11 * this.s)) continue; // only a small blob may pass on the weaker colour test
         if (a >= 3 && a <= amax && x1 - x0 < mxs && y1 - y0 < mxs) { const q = [sx / a - c.shift[0], sy / a - c.shift[1], a]; out.c2.push(q); if (strict) out.c.push(q); } }
       for (const o of hits) { this.kind[o] = 0; mask[o - W - 1] = mask[o - W] = mask[o - W + 1] = mask[o - 1] = mask[o] = mask[o + 1] = mask[o + W - 1] = mask[o + W] = mask[o + W + 1] = 0; }
+      // There is one ball. When many things light up at once (the camera shook, wind in the trees) they come in clumps; a ball is on its own. In such a frame keep only what stands alone.
+      if (out.c2.length > 8) { const L = out.c2, R2 = (45 * this.s) ** 2, lone = q => { let n = 0; for (const r of L) { const dx = r[0] - q[0], dy = r[1] - q[1]; if (dx * dx + dy * dy < R2 && ++n > 2) return false; } return true; }; // n counts q itself too: at most one neighbour allowed
+        const keep = new Set(L.filter(lone)); this.dropped += L.length - keep.size; out.c2 = L.filter(q => keep.has(q)); out.c = out.c.filter(q => keep.has(q)); }
       // large moving blobs (players) on the coarse grid
       const ch = this.ch, seen = coarse; const minCells = 25;
       for (let i = 0; i < seen.length; i++) { if (seen[i] < 3 || seen[i] === 65535) continue; let a = 0, x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; stack.push(i); seen[i] = 65535;
