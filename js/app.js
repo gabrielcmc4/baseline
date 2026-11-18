@@ -4,6 +4,7 @@ import { probe, grabFrame, decodeAll } from './decode.js';
 import { topView, sideView, fmtTime, resLabel, spinKind } from './report.js';
 import { cloudConfigured, initCloud, currentUser, signIn, signOut, listSessions, saveSession, removeSession, removeAll } from './cloud.js';
 import { sessionStats, pack, unpack, thumb, renderSessions, renderProgress } from './history.js';
+import { trimVideo } from './trim.js';
 const $ = id => document.getElementById(id);
 const S = { file: null, info: null, img: null, lines: {}, raw: {}, pending: [], active: 'baseline', cal: null, shots: [], sel: null, mode: 'coach', abort: null, url: null };
 const ORDER = Object.keys(MODEL_LINES).filter(id => !id.startsWith('tape')); // the net tape is found automatically, never asked for
@@ -115,7 +116,14 @@ const vis = () => two() ? S.shots.filter(q => (q.who || 'me') === (S.view || 'me
 function renderMode() { const row = $('modeRow'), sel = $('modeSel'); row.hidden = !S.frames || S.fromHistory; if (row.hidden) return; sel.innerHTML = ''; for (const m of ['coach', 'serve', 'match']) { const o = document.createElement('option'); o.value = m; o.textContent = t(m); sel.appendChild(o); } sel.value = S.mode; sel.onchange = () => changeMode(sel.value); const fm = $('farMe'); fm.checked = !!S.farMe; fm.onchange = () => { S.farMe = fm.checked; changeMode(S.mode, true); }; }
 function renderWho() { const box = $('who2'), has = two() && S.shots.some(q => q.who === 'opp'); box.hidden = !has; if (!has) { S.view = 'me'; return; } box.innerHTML = '';
   for (const k of ['me', 'opp']) { const b = document.createElement('button'); b.className = 'btn' + ((S.view || 'me') === k ? ' primary' : ''); b.textContent = t(k === 'me' ? 'viewMe' : S.mode === 'coach' ? 'viewCoach' : 'viewOpp') + ' (' + S.shots.filter(q => (q.who || 'me') === k).length + ')'; b.onclick = () => { S.view = k; S.sel = null; renderReport(); }; box.appendChild(b); } }
-function renderReport() { renderMode(); renderWho(); const sh = vis(), stats = $('stats'); stats.innerHTML = ''; updateSavebar();
+// "Video with the shots only": a copy of the original without the stretches between the shots on screen (no re-encoding, see trim.js)
+function renderTrim() { const boxEl = $('trimBox'); boxEl.hidden = !S.file || !S.frames || S.fromHistory; if (S.trimUrl) { URL.revokeObjectURL(S.trimUrl); S.trimUrl = null; } $('trimDl').hidden = true; $('trimMsg').textContent = ''; $('trimMsg').className = 'msg'; }
+$('trimGo').onclick = async () => { const msg = $('trimMsg'), dl = $('trimDl'), sh = vis(); msg.className = 'msg'; dl.hidden = true; if (!sh.length) { msg.textContent = t('trimNone'); msg.classList.add('bad'); return; } $('trimGo').disabled = true; msg.textContent = t('trimWork');
+  try { const r = await trimVideo(S.file, sh.map(q => ({ t: q.t, tLand: q.tLand })), { before: Math.max(0, Math.min(10, +$('trimB').value || 0)), after: Math.max(0, Math.min(10, +$('trimA').value || 0)) }); if (S.trimUrl) URL.revokeObjectURL(S.trimUrl); S.trimUrl = URL.createObjectURL(r.blob);
+    dl.href = S.trimUrl; dl.download = (S.file.name || 'video').replace(/\.[^.]+$/, '') + ' - baseline.mp4'; dl.textContent = t('trimDone', { mb: num(r.blob.size / 1e6, 0), dur: fmtTime(r.seconds) }); dl.hidden = false; msg.textContent = t('trimInfo', { n: r.segments }); msg.classList.add('good'); crumb('trim ' + r.segments + ' clips ' + Math.round(r.seconds) + 's ' + Math.round(r.blob.size / 1e6) + 'MB'); window.__baselineTrim = r; }
+  catch (e) { console.error(e); crumb('trim failed ' + e.message); msg.textContent = t('trimFail'); msg.classList.add('bad'); }
+  $('trimGo').disabled = false; };
+function renderReport() { renderMode(); renderWho(); renderTrim(); const sh = vis(), stats = $('stats'); stats.innerHTML = ''; updateSavebar();
   if (!sh.length) { stats.innerHTML = `<div><span>${t('noShots')}</span></div>`; $('top').innerHTML = $('side').innerHTML = $('tbl').innerHTML = $('sel').innerHTML = $('legend').innerHTML = ''; return; }
   const nIn = sh.filter(s => s.result === 'in').length, over = sh.filter(s => s.result !== 'net');
   const tile = (v, u, l) => { const d = document.createElement('div'); d.innerHTML = `<b>${v}<small>${u}</small></b><span>${l}</span>`; stats.appendChild(d); };

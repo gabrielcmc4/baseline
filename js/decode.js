@@ -81,7 +81,8 @@ export async function parseMp4(file) {
     cts.set(dts); if (ctts) { const nn = v.getUint32(ctts.a + 4); let ci = 0; for (let e = 0; e < nn && ci < n; e++) { const cnt = v.getUint32(ctts.a + 8 + 8 * e), d = v.getInt32(ctts.a + 12 + 8 * e); for (let k = 0; k < cnt && ci < n; k++) cts[ci++] += d; } }
     const sync = new Uint8Array(n); if (stss) { const ns = v.getUint32(stss.a + 4); for (let i = 0; i < ns; i++) { const k = v.getUint32(stss.a + 8 + 4 * i); if (k >= 1 && k <= n) sync[k - 1] = 1; } } else sync.fill(1);
     let cmin = Infinity; for (let i = 0; i < Math.min(n, 64); i++) if (cts[i] < cmin) cmin = cts[i];
-    return { codec, description, width, height, ang, timescale, n, size, offset, dts, cts, sync, cmin, duration: tt / timescale, summary }; }
+    const raw = (x0, x1) => new Uint8Array(v.buffer.slice(v.byteOffset + x0, v.byteOffset + x1)), mo2 = tkhd ? tkhd.a + (v.getUint8(tkhd.a) === 1 ? 52 : 40) : -1;
+    return { codec, description, width, height, ang, timescale, n, size, offset, dts, cts, sync, cmin, duration: tt / timescale, summary, total: tt, stsdRaw: raw(stsd.a - 8, stsd.b), matrix: tkhd ? raw(mo2, mo2 + 36) : null, tkwh: tkhd ? raw(mo2 + 36, mo2 + 44) : null }; }
   throw new Error('no usable video track (' + summary.join(',') + ')');
 }
 export async function decodeDirect(file, info, onFrame, onProgress, signal, range) { // range {part, parts}: decode only that share of the video (cut at key frames), so several workers can each take a share
