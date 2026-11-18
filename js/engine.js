@@ -344,6 +344,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     const sd = covariance(fit, y => { const q = flightSummary(y); return [q.land ? q.land[0] : 0, q.land ? q.land[1] : 0, q.net ? q.net[2] : 0, y[6]]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9];
     if (sd[1] > 3) { meta.rej.depth++; return; }
     const C = COURT, [lx, ly] = sum.land, serve = x[2] > 2.0 && x[1] < 1.5; let result, target = null;
+    if (mode === 'serve' && !serve) { meta.rej.notServe = (meta.rej.notServe || 0) + 1; return; } // serve practice: a ball bounced on the ground or rolled back is not a serve
     if (netHit || !sum.net || sum.clear < 0) result = 'net';
     else if (mode === 'serve' || (mode === 'match' && serve)) { const left = x[0] > 0; target = left ? 'left' : 'right';
       const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
@@ -363,8 +364,12 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       const k = Math.min(last.length, 6), sg = last.slice(-k), f = sg.map(p => p[0] - r[0][0]), px = polyval(polyfit(f, sg.map(p => p[1]), 1), 0), py = polyval(polyfit(f, sg.map(p => p[2]), k >= 4 ? 2 : 1), 0);
       if (Math.hypot(px - r[0][1], py - r[0][2]) < (15 + 3 * gap) * s && r[r.length - 1][2] > r[0][2]) { chain.push(r); idx.push(b); } }
     const seenF = new Set(), pts = []; for (const sg of chain) for (const p of sg) if (!seenF.has(p[0])) { seenF.add(p[0]); pts.push(p); } pts.sort((u, v) => u[0] - v[0]); if (pts.length < 6) continue;
+    // the toss often runs straight into the serve as one track: the hit is where the ball suddenly gets much faster in the picture
+    { const st = []; for (let i = 1; i < pts.length; i++) st.push(Math.hypot(pts[i][1] - pts[i - 1][1], pts[i][2] - pts[i - 1][2]) / Math.max(1, pts[i][0] - pts[i - 1][0])); let cut = 0;
+      for (let i = 1; i < Math.min(st.length - 5, 30); i++) { const before = Math.max(st[i - 1], i > 1 ? st[i - 2] : 0, 1.5 * s * fs); if (st[i] > 2.5 * before && st[i + 1] > 0.5 * st[i]) cut = i; }
+      if (cut) pts.splice(0, cut); if (pts.length < 6) continue; }
     const end = pts[pts.length - 1], gpe = cam.ground(end[1], end[2]); if (!gpe || gpe[1] < COURT.NET - 1 || gpe[1] > COURT.LEN + 12) continue; // last seen on the near side of the net: not a serve going away
-    const d0 = cam.ray(x0, y0), sc0 = (0 - cam.C[1]) / d0[1], zB = cam.C[2] + sc0 * d0[2]; if (!(sc0 > 0) || zB < 1.6 || zB > 3.6) continue; // over the baseline it must be at a height a racket can reach
+    const d0 = cam.ray(pts[0][1], pts[0][2]), sc0 = (0 - cam.C[1]) / d0[1], zB = cam.C[2] + sc0 * d0[2]; if (!(sc0 > 0) || zB < 1.6 || zB > 3.6) continue; // over the baseline it must be at a height a racket can reach
     let ground = null; for (const r of segs) { const g0 = r[0][0] - end[0]; if (g0 < 0 || g0 > 3 || r === chain[chain.length - 1]) continue; if (Math.hypot(r[0][1] - end[1], r[0][2] - end[2]) < 14 * s && r.length >= 4 && r[Math.min(3, r.length - 1)][2] < r[0][2] - 2 * s) { ground = gpe; break; } }
     meta.nearServes++; const t0 = ts[pts[0][0]], t = pts.map(p => ts[p[0]] - t0), uv = pts.map(p => [p[1], p[2]]), prior = { serve: true, y: 0.1, ySd: 0.8, z: 2.7, zSd: 0.4, clSd, ground };
     const fit = fitFlight(cam, t, uv, prior, s, true); if (!fit || fit.rms > 3) { meta.rej.rms++; continue; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 50 || speed > 260) { meta.rej.speed++; continue; }
