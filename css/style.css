@@ -144,3 +144,4 @@ details.manual{margin:0 0 1rem}details.manual summary{cursor:pointer;color:var(-
   .toolbar{flex-direction:column;align-items:flex-start}
 }
 @media (prefers-reduced-motion:reduce){.btn,.switch .track,.switch .track::after{transition:none}}
+@media (max-width:640px){.toolbar .hint{flex:none}.toolbar .field{width:100%}.toolbar select{flex:1 1 auto;min-width:0}#s4 .row.end{flex-direction:column;align-items:stretch}}
