@@ -20,9 +20,9 @@ export async function trimVideo(file, shots, { before = 2, after = 2 } = {}) {
   const blobs = []; for (const [i0, i1] of segs) { let lo = Infinity, hi = 0; for (let i = i0; i < i1; i++) { if (m.offset[i] < lo) lo = m.offset[i]; if (m.offset[i] + m.size[i] > hi) hi = m.offset[i] + m.size[i]; }
     blobs.push(file.slice(lo, hi)); for (let i = i0; i < i1; i++) { sizes.push(m.size[i]); offs.push(HEAD + pos + m.offset[i] - lo); durs.push(i + 1 < m.n ? Math.max(1, m.dts[i + 1] - m.dts[i]) : Math.max(1, Math.round(ts / 60))); const c = m.cts[i] - m.dts[i]; ctso.push(c); if (c < minC) minC = c; syncs.push(m.sync[i]); } pos += hi - lo; }
   const n = sizes.length, total = durs.reduce((a, b) => a + b, 0), mv = 1000, dur = Math.round(total * mv / ts);
-  const rle = arr => { const out = []; let k = 0; while (k < arr.length) { let j = k; while (j < arr.length && arr[j] === arr[k]) j++; out.push(u32(j - k), u32(arr[k])); k = j; } return [u32(out.length / 2), ...out]; };
-  const stts = full('stts', 0, 0, ...rle(durs)), ctts = full('ctts', 0, 0, ...rle(ctso.map(c => c - minC)));
-  const ss = []; for (let i = 0; i < n; i++) if (syncs[i]) ss.push(u32(i + 1)); const stss = full('stss', 0, 0, u32(ss.length), ...ss);
+  const rle = arr => { const out = []; let k = 0; while (k < arr.length) { let j = k; while (j < arr.length && arr[j] === arr[k]) j++; out.push(u32(j - k), u32(arr[k])); k = j; } return cat([u32(out.length / 2), cat(out)]); }; // no argument spreading: a phone video with uneven frame gaps gives tens of thousands of entries
+  const stts = full('stts', 0, 0, rle(durs)), ctts = full('ctts', 0, 0, rle(ctso.map(c => c - minC)));
+  const ss = []; for (let i = 0; i < n; i++) if (syncs[i]) ss.push(u32(i + 1)); const stss = full('stss', 0, 0, u32(ss.length), cat(ss));
   const stsc = full('stsc', 0, 0, u32(1), u32(1), u32(1), u32(1)), stsz = full('stsz', 0, 0, u32(0), u32(n), cat(sizes.map(u32))), co64 = full('co64', 0, 0, u32(n), cat(offs.map(u64)));
   const stbl = box('stbl', m.stsdRaw, stts, ctts, stss, stsc, stsz, co64);
   const dinf = box('dinf', full('dref', 0, 0, u32(1), full('url ', 0, 1))), minf = box('minf', full('vmhd', 0, 1, new Uint8Array(8)), dinf, stbl);
