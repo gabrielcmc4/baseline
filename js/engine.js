@@ -315,8 +315,9 @@ function analyze2(frames, cam, opts = {}) { const p = opts.onProgress, a = analy
   out.meta = { ...(useB ? b : a).meta, colour: useB ? 'weak' : 'strict', other: useB ? na : nb, farColour: farB ? 'weak' : 'strict', incoming: (farB ? b : a).meta.incoming }; return out; }
 function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd = 1.0, clSd = 0.2, zSd = 0.7, only = null } = {}) {
   const s = Math.sqrt(cam.W * cam.H / (720 * 1280)), H = cam.H, ts = frames.map(f => f.t);
-  const fps = (frames.length - 1) / Math.max(1e-6, ts[ts.length - 1] - ts[0]), fs = 30 / fps; // pixel-per-frame thresholds were tuned at 30 fps
-  const tracks = buildTracks(frames, s * Math.max(1, fs)); let segs = [];
+  const dts = []; for (let i = 1; i < ts.length; i += Math.max(1, ts.length >> 12)) if (ts[i] > ts[i - 1]) dts.push(ts[i] - ts[i - 1]); dts.sort((a, b) => a - b); // the usual gap between frames (not the average: stretches of dead time are read only every 4th frame)
+  const fps = dts.length ? 1 / dts[dts.length >> 1] : 30, fs = 30 / fps; // pixel-per-frame thresholds were tuned at 30 fps
+  const T0 = Date.now(), ms = {}; const tracks = buildTracks(frames, s * Math.max(1, fs)); let segs = []; ms.tracks = Date.now() - T0;
   for (const tr of tracks) for (const q of splitKinks(tr, 6 * s * fs)) if (q.length >= 5 && smoothRms(q) < 2.5 * s) segs.push(q);
   segs.sort((a, b) => a[0][0] - b[0][0]);
   const used = new Set(), cands = [];
@@ -368,6 +369,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit, netZ: netHit ? o.zNet : null, serve, target, feetY: fg ? fg[1] : null,
       path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv });
   });
+  ms.near = Date.now() - T0;
   // ---- serves hit from the near side. Seen from a camera a few metres up, the ball leaves the racket above the net tape in the picture and comes DOWN the picture while it flies away, so it never qualifies as an ordinary near-side shot.
   const usedS = new Set(); meta.nearServes = 0;
   if (mode !== 'coach' && !only) for (let a = 0; a < segs.length; a++) { if (usedS.has(a)) continue; const q = segs[a], x0 = q[0][1], y0 = q[0][2], e0 = q[q.length - 1];
@@ -404,6 +406,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     shots.push({ t: t0, who: 'me', far: false, bounce: !!(ground || groundAt), n: pts.length, nTotal: pts.length, rms: fit.rms, rmsFlat: null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
       land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit: false, netZ: null, serve: true, target, feetY: null,
       path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv }); }
+  ms.serve = Date.now() - T0;
   // ---- balls coming toward the camera: the opponent's shots in a match, or serves hit from the far side in serve practice
   if (mode !== 'coach' && !only) { const usedI = new Set(usedS); meta.incoming = 0;
     for (let a = 0; a < segs.length; a++) { if (usedI.has(a)) continue; const q = segs[a], x0 = q[0][1], y0 = q[0][2], e0 = q[q.length - 1];
@@ -430,7 +433,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       shots.push({ t: t0, who: mode === 'serve' ? 'me' : 'opp', far: true, bounce: !!ground, n: pts.length, nTotal: pts.length, rms: fit.rms, rmsFlat: null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
         land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit: false, netZ: null, serve: mode === 'serve' || serve, target, feetY: null,
         path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv }); } }
-  shots.sort((a, b) => a.t - b.t); shots.meta = meta; return shots;
+  ms.all = Date.now() - T0; meta.ms = ms; shots.sort((a, b) => a.t - b.t); shots.meta = meta; return shots;
 }
 
 // ---------- automatic court finder ----------
