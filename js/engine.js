@@ -152,14 +152,16 @@ export class Detector {
     for (let y = 1; y < H - 1; y++) { let o = y * W + 1; for (let x = 1; x < W - 1; x++, o++) g[o] = (t[o - W - 1] + 2 * t[o - W] + t[o - W + 1] + 2 * t[o - 1] + 4 * t[o] + 2 * t[o + 1] + t[o + W - 1] + 2 * t[o + W] + t[o + W + 1]) >> 4; }
     return g; }
   // where the court lines are in this frame relative to the frame the court was marked in (a camera on a fence sways); mode 0: small step from the last position, 1: wider look around it, 2: anywhere within reach (start, after a cut, after losing it)
-  _drift(g, mode) { if (this.ref.length < 20) return; const W = this.W, H = this.H, RM = Math.round(40 * this.s), ref = this.ref;
+  _drift(g, mode) { if (this.ref.length < 20) return; const W = this.W, H = this.H, RM = Math.round(64 * this.s), ref = this.ref;
     const score = (dx, dy) => { let s = 0; for (const p of ref) { const x = (p[0] + dx) | 0, y = (p[1] + dy) | 0; if (x >= 0 && y >= 0 && x < W && y < H) s += g[y * W + x]; } return s; };
     const search = (cx, cy, r, st) => { let best = -1, bx = cx, by = cy; for (let dy = Math.max(-RM, cy - r); dy <= Math.min(RM, cy + r); dy += st) for (let dx = Math.max(-RM, cx - r); dx <= Math.min(RM, cx + r); dx += st) { const s = score(dx, dy); if (s > best) { best = s; bx = dx; by = dy; } } return [bx, by, best]; };
     const [cx0, cy0] = this.shift; let bx, by, best;
-    if (mode === 2) { [bx, by] = search(0, 0, RM, 3); [bx, by, best] = search(bx, by, 3, 1); }
+    let peak = 0; if (mode === 2) { [bx, by] = search(0, 0, RM, 3); [bx, by, best] = search(bx, by, 3, 1); const d = Math.round(9 * this.s), side = (score(bx + d, by) + score(bx - d, by) + score(bx, by + d) + score(bx, by - d)) / 4; peak = best / (side + 1); }
     else { [bx, by, best] = search(cx0, cy0, mode ? Math.round(8 * this.s) : 2, 1); const sc = score(cx0, cy0); if (best < 1.01 * sc) { bx = cx0; by = cy0; best = sc; } } // do not chase noise: move only for a clear gain
-    if (this.refScore === null) this.refScore = best;
-    this.valid = best > 0.8 * this.refScore && Math.abs(bx) < RM && Math.abs(by) < RM; this.shift = [bx, by]; if (this.valid) this.refScore = 0.98 * this.refScore + 0.02 * best;
+    if (this.refScore === null) { this.refScore = best; this.refScore0 = best; this.lostFor = 0; }
+    this.valid = best > 0.8 * this.refScore && Math.abs(bx) < RM && Math.abs(by) < RM; this.shift = [bx, by];
+    if (!this.valid && mode === 2 && peak > 1.25 && best > 0.45 * this.refScore0 && Math.abs(bx) < RM && Math.abs(by) < RM && ++this.lostFor > 4) { this.refScore = best; this.valid = true; } // the lines are clearly there, only fainter or brighter than at the start (sun, shade): take this as the new normal
+    if (this.valid) { this.lostFor = 0; this.refScore = 0.98 * this.refScore + 0.02 * best; }
     if (Math.abs(bx) > this.maxShift) this.maxShift = Math.abs(bx); if (Math.abs(by) > this.maxShift) this.maxShift = Math.abs(by); }
   // push a frame; returns {t, c:[[x,y,area]], blobs:[[x0,y0,x1,y1]], valid} for the PREVIOUS frame (or null)
   push(rgba, t) {
@@ -167,8 +169,8 @@ export class Detector {
     if (this.bufs.length) { const q = this.bufs[this.bufs.length - 1].g; let d = 0, m = 0; for (let i = 0; i < g.length; i += 97) { const e = g[i] - q[i]; d += e < 0 ? -e : e; m++; } if (d / m < 0.02) return null; } // repeated frame (re-encoded video): skip it
     // block averages of the picture: a big share of blocks changing at once means the video was edited here and another clip starts
     const bw = this.W >> 4, bh = this.H >> 4, blk = new Uint8Array(bw * bh); for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) { let sum = 0; for (let dy = 2; dy < 16; dy += 4) { const o = (by * 16 + dy) * this.W + bx * 16; sum += g[o + 2] + g[o + 6] + g[o + 10] + g[o + 14]; } blk[by * bw + bx] = sum >> 4; }
-    let cut = false; if (this.blk) { let c = 0; for (let i = 0; i < blk.length; i++) { const e = blk[i] - this.blk[i]; if (e > 12 || e < -12) c++; } cut = c / blk.length > 0.1; } this.blk = blk;
-    this._drift(g, cut || this.n === 0 ? 2 : this.n % 15 === 0 ? 1 : 0); if (!this.valid && !cut && this.n % 5 === 0) this._drift(g, 2); // lost the court: look further away, but not on every frame
+    let cut = false; if (this.blk) { let c = 0; for (let i = 0; i < blk.length; i++) { const e = blk[i] - this.blk[i]; if (e > 12 || e < -12) c++; } cut = c / blk.length > 0.45; } this.blk = blk; // a swaying camera changes a good part of the picture too; only a change of scene counts
+    this._drift(g, cut || this.n === 0 ? 2 : this.n % 15 === 0 ? 1 : 0); if (!this.valid && !cut) this._drift(g, 2); // lost the court: look further away, but not on every frame
     this.bufs.push({ rgba, g, t, shift: this.shift.slice(), valid: this.valid, cut }); this.n++;
     if (this.bufs.length < 3) return null;
     const [p, c, nx] = this.bufs, W = this.W, H = this.H, mask = this.mask, hits = [], d = c.rgba, coarse = this.coarse, cw = this.cw; coarse.fill(0);
@@ -284,8 +286,11 @@ function covariance(fit, fnOut, h) { // propagate fit covariance to derived quan
 // small or washed out (camera far away) but lets in more clutter. Both are analyzed and the one that yields more valid shots is kept.
 // Places where "balls" keep turning up all through the video are not balls (leaves moving in the wind, a flag, a light): a real ball crosses any one spot only now and then.
 function quiet(frames) { const G = 20, cnt = new Map(), key = q => ((q[1] / G) | 0) * 4096 + ((q[0] / G) | 0); let n = 0; for (const f of frames) { n++; const seen = new Set(); for (const q of f.c2 || f.c) { const k = key(q); if (!seen.has(k)) { seen.add(k); cnt.set(k, (cnt.get(k) || 0) + 1); } } }
-  const lim = Math.max(+(globalThis.process?.env?.QMIN || 60), 0.03 * n), bad = new Set(); for (const [k, v] of cnt) if (v > lim) bad.add(k); if (!bad.size) return { frames, cells: 0, removed: 0 };
-  let removed = 0; const keep = q => { if (bad.has(key(q))) { removed++; return false; } return true; }; return { frames: frames.map(f => ({ ...f, c: f.c.filter(keep), c2: f.c2 && f.c2.filter(keep) })), cells: bad.size, removed }; }
+  const lim = Math.max(60, 0.03 * n), bad = new Set(); for (const [k, v] of cnt) if (v > lim) bad.add(k);
+  // frames with many "balls" at once (the camera shook, a gust in the trees): there is only one ball, so in those frames drop everything in the places that light up during such bursts
+  const B = 12, bc = new Map(); let nb = 0; for (const f of frames) { const l = f.c2 || f.c; if (l.length <= B) continue; nb++; const seen = new Set(); for (const q of l) { const k = key(q); if (!seen.has(k)) { seen.add(k); bc.set(k, (bc.get(k) || 0) + 1); } } }
+  const blim = Math.max(8, 0.01 * nb), bbad = new Set(); for (const [k, v] of bc) if (v > blim) bbad.add(k); if (!bad.size && !bbad.size) return { frames, cells: 0, removed: 0 };
+  let removed = 0; return { frames: frames.map(f => { const burst = (f.c2 || f.c).length > B, keep = q => { const k = key(q); if (bad.has(k) || (burst && bbad.has(k))) { removed++; return false; } return true; }; return { ...f, c: f.c.filter(keep), c2: f.c2 && f.c2.filter(keep) }; }), cells: bad.size + bbad.size, removed }; }
 export function analyze(frames0, cam, opts = {}) { const qz = quiet(frames0), frames = qz.frames, out = analyze2(frames, cam, opts); out.meta.noisy = [qz.cells, qz.removed]; return out; }
 function analyze2(frames, cam, opts = {}) { const p = opts.onProgress, a = analyzeCore(frames, cam, { ...opts, onProgress: p && (v => p(v / 2)) });
   if (opts.only || !frames.some(f => f.c2 && f.c2.length > f.c.length)) { a.meta.colour = 'strict'; return a; }
