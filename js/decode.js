@@ -90,21 +90,24 @@ export async function decodeDirect(file, info, onFrame, onProgress, signal) {
   globalThis.__crumb?.('direct ' + m.summary.join(',') + ' ' + m.codec + ' ' + m.width + 'x' + m.height + ' samples ' + m.n + ' fps ' + fps.toFixed(1) + ' rot ' + rot);
   const cfg = { codec: m.codec, codedWidth: m.width, codedHeight: m.height, description: m.description }, sup = await VideoDecoder.isConfigSupported(cfg); globalThis.__crumb?.('codec supported ' + sup.supported); if (!sup.supported) throw new Error('codec');
   const canvas = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H }), ctx = canvas.getContext('2d', { willReadFrequently: true });
-  let failed = null, pending = 0, count = 0;
-  const dec = new VideoDecoder({ error: e => { failed = e; globalThis.__crumb?.('decoder error ' + e.message); }, output: fr => { try {
+  let failed = null, pending = 0, count = 0, wake = null;
+  const dec = new VideoDecoder({ error: e => { failed = e; globalThis.__crumb?.('decoder error ' + e.message); if (wake) { const w = wake; wake = null; w(); } }, output: fr => { try {
       if (count % stride === 0) { ctx.save();
         if (rot === 90) { ctx.translate(W, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); } else if (rot === 270) { ctx.translate(0, H); ctx.rotate(-Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); }
         else if (rot === 180) { ctx.translate(W, H); ctx.rotate(Math.PI); ctx.drawImage(fr, 0, 0, W, H); } else ctx.drawImage(fr, 0, 0, W, H);
         ctx.restore(); onFrame(ctx.getImageData(0, 0, W, H), fr.timestamp / 1e6); }
       if (count === 0 || count % 300 === 0) globalThis.__crumb?.('frame ' + count + ' ' + fr.format + ' pending ' + pending);
-      count++; onProgress(count / m.n); } catch (e) { failed = e; } finally { fr.close(); pending--; } } });
+      count++; onProgress(count / m.n); } catch (e) { failed = e; } finally { fr.close(); pending--; if (wake) { const w = wake; wake = null; w(); } } } });
   dec.configure(cfg);
-  let win = null, w0 = 0, i = 0; while (i < m.n && !m.sync[i]) i++; // decoding has to start on a key frame
+  let lastOut = performance.now(), lastCount = 0, phase = '', stalled = false; const dog = setInterval(() => { if (count !== lastCount) { lastCount = count; lastOut = performance.now(); } else if (performance.now() - lastOut > 15000) { globalThis.__crumb?.('stalled at sample ' + i + '/' + m.n + ' frames out ' + count + ' pending ' + pending + ' queue ' + dec.decodeQueueSize + ' state ' + dec.state + ' phase ' + phase); lastOut = performance.now(); stalled = true; } }, 5000);
+  let win = null, w0 = 0, i = 0; info.state = () => 'sample ' + i + '/' + m.n + ' out ' + count + ' pending ' + pending + ' queue ' + dec.decodeQueueSize + ' ' + dec.state + ' ' + phase + (failed ? ' failed ' + failed.message : ''); while (i < m.n && !m.sync[i]) i++; // decoding has to start on a key frame
   for (; i < m.n; i++) { if (signal?.aborted) { try { dec.close(); } catch (e) {} throw new Error('aborted'); } if (failed) throw failed; const o = m.offset[i], sz = m.size[i]; if (!sz) continue;
-    if (!win || o < w0 || o + sz > w0 + win.byteLength) { w0 = o; win = new Uint8Array(await file.slice(o, o + Math.max(sz, 4 * 1024 * 1024)).arrayBuffer()); if (win.byteLength < sz) break; }
-    pending++; dec.decode(new EncodedVideoChunk({ type: m.sync[i] ? 'key' : 'delta', timestamp: Math.round((m.cts[i] - m.cmin) * 1e6 / m.timescale), data: win.subarray(o - w0, o - w0 + sz) }));
-    if (pending > 12 || dec.decodeQueueSize > 12) await new Promise(r => setTimeout(r, 0)); while (pending > 24 && !failed) await new Promise(r => setTimeout(r, 4)); }
-  await dec.flush(); dec.close(); if (failed) throw failed; return count;
+    if (!win || o < w0 || o + sz > w0 + win.byteLength) { phase = 'read ' + o; w0 = o; win = new Uint8Array(await file.slice(o, o + Math.max(sz, 4 * 1024 * 1024)).arrayBuffer()); if (win.byteLength < sz) break; }
+    phase = 'decode'; pending++; dec.decode(new EncodedVideoChunk({ type: m.sync[i] ? 'key' : 'delta', timestamp: Math.round((m.cts[i] - m.cmin) * 1e6 / m.timescale), data: win.subarray(o - w0, o - w0 + sz) }));
+    // wait for the decoder without timers: browsers slow timers down to one per minute in a tab left in the background, which would stall a long analysis
+    phase = 'wait'; let limit = 24; while (pending > limit && !failed) { const before = count; await new Promise(r => { wake = r; setTimeout(r, 3000); }); if (count === before && dec.decodeQueueSize === 0 && limit < 96) limit += 8; } // nothing came out although the decoder is idle: it wants more input first
+  }
+  phase = 'flush'; await dec.flush(); clearInterval(dog); dec.close(); if (failed) throw failed; return count;
 }
 export async function decodeAll(file, info, onFrame, onProgress, signal) {
   if (typeof VideoDecoder !== 'undefined' && typeof MP4Box !== 'undefined') { let got = 0; const wrap = (im, t) => { got++; onFrame(im, t); };

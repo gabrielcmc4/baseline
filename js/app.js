@@ -82,10 +82,14 @@ async function run() { crumb('run mode ' + S.mode); step(3); const { W, H } = S.
   const ring = (data, balls) => { px.putImageData(new ImageData(new Uint8ClampedArray(data), W, H), 0, 0); px.strokeStyle = '#cbe33a'; px.lineWidth = 3; for (const c of balls) { px.beginPath(); px.arc(c[0], c[1], 14, 0, 7); px.stroke(); } };
   try { let r = null, frames = null;
     if (!S.slow && !window.__baselineNoScanWorker) try { // normal path: everything heavy happens in a worker
+      let unlock = null; if (navigator.locks) navigator.locks.request('baseline-analysis-' + Math.random(), () => new Promise(r => { unlock = r; })).catch(() => {}); // holding a lock tells the browser this tab is working, so it is not frozen while in the background
+      try {
       r = await new Promise((res, rej) => { const w = new Worker(new URL('./scan.js', import.meta.url), { type: 'module' }); const stop = () => { w.terminate(); rej(new Error('aborted')); }; S.abort.signal.addEventListener('abort', stop);
-        w.onmessage = e => { const d = e.data; if (d.crumb) crumb(d.crumb); else if (d.preview) ring(d.preview, d.balls); else if (d.progress != null) onP(d.progress); else if (d.done) { w.terminate(); res(d); } else if (d.error) { w.terminate(); const er = new Error(d.error); er.got = d.got; rej(er); } };
+        let seenP = -1; const ping = setInterval(() => { if (lastP === seenP) w.postMessage({ ping: 1 }); seenP = lastP; }, 20000), end = () => clearInterval(ping); S.abort.signal.addEventListener('abort', end); // no progress for 20 s: ask the worker where it is
+        w.onmessage = e => { const d = e.data; if (d.pong) { crumb('no progress: ' + d.pong); return; } if (d.done || d.error) end(); if (d.crumb) crumb(d.crumb); else if (d.preview) ring(d.preview, d.balls); else if (d.progress != null) onP(d.progress); else if (d.done) { w.terminate(); res(d); } else if (d.error) { w.terminate(); const er = new Error(d.error); er.got = d.got; rej(er); } };
         w.onerror = e => { w.terminate(); const er = new Error(e.message || 'worker'); er.got = 0; rej(er); };
         w.postMessage({ file: S.file, W, H, duration: S.info.duration, camP: Array.from(cam.p), refPts: Object.values(S.lines).flat() }); });
+      } finally { if (unlock) unlock(); }
       frames = r.frames; S.info.fps = r.fps; r.fast = true; crumb('scan done frames ' + frames.length + ' moved ' + r.maxShift + 'px busy ' + r.busy);
     } catch (e) { if (e.message === 'aborted' || e.got > 0) throw e; crumb('scan worker failed: ' + e.message); r = null; }
     if (!r) { const det = new Detector(W, H, cam, Object.values(S.lines).flat()); frames = []; lastP = 0; // fallback on the page itself (other containers, browsers without WebCodecs)
