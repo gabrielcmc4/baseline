@@ -6,7 +6,7 @@ import { cloudConfigured, initCloud, currentUser, signIn, signOut, listSessions,
 import { sessionStats, pack, unpack, thumb, renderSessions, renderProgress } from './history.js';
 const $ = id => document.getElementById(id);
 const S = { file: null, info: null, img: null, lines: {}, raw: {}, pending: [], active: 'baseline', cal: null, shots: [], sel: null, mode: 'coach', abort: null, url: null };
-const ORDER = Object.keys(MODEL_LINES);
+const ORDER = Object.keys(MODEL_LINES).filter(id => !id.startsWith('tape')); // the net tape is found automatically, never asked for
 function step(n) { $('s5').hidden = true; for (let i = 1; i <= 4; i++) { $('s' + i).hidden = i !== n; document.querySelector(`.steps li[data-step="${i}"]`).classList.toggle('on', i === n); } document.body.classList.toggle('working', n > 1); window.scrollTo(0, 0); }
 document.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => { setLang(b.dataset.lang); refreshDynamic(); });
 function refreshDynamic() { drawMini(); if (S.shots.length && !$('s4').hidden) renderReport(); if (!$('s5').hidden) showHistory(); updateAcct(); }
