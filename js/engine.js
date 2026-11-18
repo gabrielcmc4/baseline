@@ -338,7 +338,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     const e = uv[uv.length - 1], d = cam.ray(e[0], e[1]), kk = (COURT.NET - cam.C[1]) / d[1], zNet = cam.C[2] + kk * d[2];
     return { t0, t, uv, fg: feet ? cam.ground(feet[0], feet[1]) : null, zNet }; });
   const fitOne = (o, off) => { const prior = { z: 1.3, zSd, y: o.fg ? o.fg[1] + off : null, ySd, clSd }; let t = o.t, uv = o.uv, n = t.length, fit = fitFlight(cam, t, uv, prior, s, true);
-    while (fit && n > 8) { const e = fit.err.slice(-3).reduce((a, b) => a + b, 0) / 3; if (e <= 3.5) break; n -= 2; t = t.slice(0, n); uv = uv.slice(0, n); fit = fitFlight(cam, t, uv, prior, s, true); }
+    while (fit && n > 8 && fit.rms < 9) { const e = fit.err.slice(-3).reduce((a, b) => a + b, 0) / 3; if (e <= 3.5) break; n -= Math.max(2, Math.round(0.12 * n)); t = t.slice(0, n); uv = uv.slice(0, n); fit = fitFlight(cam, t, uv, prior, s, true); } // a track that fits nowhere near a flight is not worth trimming point by point (this loop used to be most of the waiting after the video was read)
     return fit ? { fit, t, uv, n, prior } : null; };
   // Depth self-calibration. A ball that dies in the net was exactly at the net when it was last seen, which tells how far in front of the
   // hitter's feet the tracked flight really starts. Without enough net balls the default offset is used.
@@ -348,6 +348,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     if (refs.length >= 4) { const a = endY(yOff); if (a) { const b = endY(yOff + 0.8); let off = yOff; if (b && Math.abs(b[0] - a[0]) > 0.05) off = yOff + 0.8 * (COURT.NET - 0.1 - a[0]) / (b[0] - a[0]); meta.yOff = Math.max(0.6, Math.min(2.2, off)); meta.netRefs = a[1]; } } }
   const shots = [];
   obs.forEach((o, ci) => { if (onProgress) onProgress(ci / obs.length); if (only && !only.some(q => Math.abs(q - o.t0) < 0.3)) return;
+    if (mode === 'serve') { const d0 = cam.ray(o.uv[0][0], o.uv[0][1]), sc = (0 - cam.C[1]) / d0[1]; if (!(sc > 0) || cam.C[2] + sc * d0[2] < 1.5) { meta.rej.notServe = (meta.rej.notServe || 0) + 1; return; } } // serve practice: a ball that starts low over the baseline is not a serve, no need to fit it
     const r = fitOne(o, meta.yOff); if (!r) { meta.rej.nofit++; return; } let { fit, t, uv, n, prior } = r; const fg = o.fg, t0 = o.t0; let netHit = false;
     if (fg && n === o.t.length && o.zNet > 0.05 && o.zNet < 1.12 && fit.rms <= 3 && Math.abs(simulateAt(fit.x, [t[n - 1]])[0][1] - COURT.NET) < 2.5) { // died in the net: pin the last point to the net plane
       prior = { ...prior, anchorNet: true }; const f2 = fitFlight(cam, t, uv, prior, s, true, fit.x); if (f2 && f2.rms <= 3) { fit = f2; netHit = true; } }
