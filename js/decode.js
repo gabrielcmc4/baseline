@@ -93,7 +93,10 @@ export async function decodeDirect(file, info, onFrame, onProgress, signal) {
   const mk = soft => { const c = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H }); return c.getContext('2d', soft ? { willReadFrequently: true } : {}); };
   const ctxs = [mk(true), mk(false)], cost = [0, 0], tried = [0, 0]; let pick = -1, ctx = ctxs[0];
   let failed = null, pending = 0, count = 0, wake = null;
-  const dec = new VideoDecoder({ error: e => { failed = e; globalThis.__crumb?.('decoder error ' + e.message); if (wake) { const w = wake; wake = null; w(); } }, output: fr => { try {
+  // Some decoders hand frames back in the order they were stored, not the order they are shown (video with B-frames): keep a few and always release the earliest, so the ball search sees them in true time order.
+  const held = [], HOLD = 8; let lastTs = -1, reordered = 0;
+  const dec = new VideoDecoder({ error: e => { failed = e; globalThis.__crumb?.('decoder error ' + e.message); if (wake) { const w = wake; wake = null; w(); } }, output: f0 => { pending--; if (held.length && f0.timestamp < held[held.length - 1].timestamp) reordered++; let k = held.length; while (k > 0 && held[k - 1].timestamp > f0.timestamp) k--; held.splice(k, 0, f0); if (held.length > HOLD) emit(held.shift()); if (wake) { const w = wake; wake = null; w(); } } });
+  const emit = fr => { try { if (fr.timestamp <= lastTs) { return; } lastTs = fr.timestamp;
       const which = pick >= 0 ? pick : (count >> 1) % 2, tr = performance.now(); ctx = ctxs[which];
       if (count % stride === 0) { ctx.save();
         if (rot === 90) { ctx.translate(W, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); } else if (rot === 270) { ctx.translate(0, H); ctx.rotate(-Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); }
@@ -102,7 +105,7 @@ export async function decodeDirect(file, info, onFrame, onProgress, signal) {
         if (pick < 0 && count >= 4) { cost[which] += performance.now() - tr; tried[which]++; if (tried[0] >= 6 && tried[1] >= 6) { pick = cost[1] / tried[1] < 0.8 * cost[0] / tried[0] ? 1 : 0; globalThis.__crumb?.('pixels: memory canvas ' + (cost[0] / tried[0]).toFixed(1) + 'ms, graphics canvas ' + (cost[1] / tried[1]).toFixed(1) + 'ms per frame, using ' + (pick ? 'graphics' : 'memory')); } }
         onFrame(im, fr.timestamp / 1e6); }
       if (count === 0 || count % 300 === 0) globalThis.__crumb?.('frame ' + count + ' ' + fr.format + ' pending ' + pending);
-      count++; onProgress(count / m.n); } catch (e) { failed = e; } finally { fr.close(); pending--; if (wake) { const w = wake; wake = null; w(); } } } });
+      count++; onProgress(count / m.n); } catch (e) { failed = e; } finally { fr.close(); } };
   dec.configure(cfg);
   let lastOut = performance.now(), lastCount = 0, phase = '', stalled = false; const dog = setInterval(() => { if (count !== lastCount) { lastCount = count; lastOut = performance.now(); } else if (performance.now() - lastOut > 15000) { globalThis.__crumb?.('stalled at sample ' + i + '/' + m.n + ' frames out ' + count + ' pending ' + pending + ' queue ' + dec.decodeQueueSize + ' state ' + dec.state + ' phase ' + phase); lastOut = performance.now(); stalled = true; } }, 5000);
   let win = null, w0 = 0, i = 0; info.state = () => 'sample ' + i + '/' + m.n + ' out ' + count + ' pending ' + pending + ' queue ' + dec.decodeQueueSize + ' ' + dec.state + ' ' + phase + (failed ? ' failed ' + failed.message : ''); while (i < m.n && !m.sync[i]) i++; // decoding has to start on a key frame
@@ -112,7 +115,7 @@ export async function decodeDirect(file, info, onFrame, onProgress, signal) {
     // wait for the decoder without timers: browsers slow timers down to one per minute in a tab left in the background, which would stall a long analysis
     phase = 'wait'; let limit = 24; while (pending > limit && !failed) { const before = count; await new Promise(r => { wake = r; setTimeout(r, 3000); }); if (count === before && dec.decodeQueueSize === 0 && limit < 96) limit += 8; } // nothing came out although the decoder is idle: it wants more input first
   }
-  phase = 'flush'; await dec.flush(); clearInterval(dog); dec.close(); if (failed) throw failed; return count;
+  phase = 'flush'; await dec.flush(); while (held.length) emit(held.shift()); globalThis.__crumb?.('frames out of order: ' + reordered); clearInterval(dog); dec.close(); if (failed) throw failed; return count;
 }
 export async function decodeAll(file, info, onFrame, onProgress, signal) {
   if (typeof VideoDecoder !== 'undefined' && typeof MP4Box !== 'undefined') { let got = 0; const wrap = (im, t) => { got++; onFrame(im, t); };
