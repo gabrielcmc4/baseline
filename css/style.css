@@ -112,3 +112,35 @@ footer{border-top:1px solid var(--sand);padding:1.2rem clamp(1rem,4vw,3rem);colo
 .who2{margin-bottom:1rem}
 
 .moderow{margin-bottom:1rem;gap:.6rem 1rem;align-items:center}.moderow select{font:inherit;color:inherit;border:1px solid var(--tan);border-radius:4px;padding:.3rem .5rem;background:var(--white)}
+
+/* ---- polish pass (2026-11-18): buttons, court step, result toolbar, phone action bar */
+.btn{transition:background .15s,border-color .15s,box-shadow .15s,transform .05s;line-height:1.2;display:inline-flex;align-items:center;justify-content:center;gap:.4rem;white-space:nowrap}
+.btn:hover:not(:disabled){background:var(--paper);border-color:var(--espresso)}
+.btn:active:not(:disabled){transform:translateY(1px)}
+.btn:focus-visible,select:focus-visible,input:focus-visible,summary:focus-visible{outline:2px solid var(--ball);outline-offset:2px}
+.btn.primary{box-shadow:0 1px 0 rgba(0,0,0,.15),0 4px 12px rgba(43,29,21,.18)}
+.btn.primary:hover:not(:disabled){background:#40291d;border-color:#40291d;box-shadow:0 1px 0 rgba(0,0,0,.15),0 6px 16px rgba(43,29,21,.26)}
+.btn:disabled{opacity:.45;box-shadow:none}
+.btn.link{display:inline;white-space:normal}.btn.link:hover:not(:disabled){background:none;color:var(--espresso)}
+.msg.good,.msg.bad{padding:.75rem 1rem;border-radius:8px;border-left:4px solid var(--in);background:#f1f6ec;color:#23451f;max-width:none}
+.msg.bad{border-left-color:var(--out);background:#fbf0ec;color:#7a2a17}
+.msg:empty{display:none}
+details.manual{margin:0 0 1rem}details.manual summary{cursor:pointer;color:var(--saddle);font-weight:500;padding:.35rem 0}details.manual .help{margin:.4rem 0 0}
+.toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:.75rem 1.5rem;padding:.8rem 1rem;margin:0 0 1rem;background:var(--paper);border:1px solid var(--tan);border-radius:10px}
+.toolbar .field{display:flex;align-items:center;gap:.6rem;font-weight:500}
+.toolbar select{font:inherit;color:inherit;border:1px solid var(--tan);border-radius:999px;padding:.4rem 2rem .4rem .9rem;background:var(--white);min-height:40px;cursor:pointer}
+.toolbar .hint{color:var(--saddle);font-size:.88rem;flex:1 1 14rem}
+.toolbar .msg{margin:0;min-height:0}
+.switch{display:inline-flex;align-items:center;gap:.6rem;cursor:pointer}
+.switch input{position:absolute;opacity:0;width:1px;height:1px}
+.switch .track{width:42px;height:24px;border-radius:999px;background:#cdbfae;position:relative;flex:none;transition:background .15s}
+.switch .track::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:var(--white);box-shadow:0 1px 2px rgba(0,0,0,.3);transition:transform .15s}
+.switch input:checked + .track{background:var(--espresso)}.switch input:checked + .track::after{transform:translateX(18px);background:var(--ball)}
+.switch input:focus-visible + .track{outline:2px solid var(--ball);outline-offset:2px}
+.who2{gap:.5rem;margin-bottom:1rem}
+@media (max-width:640px){
+  .row.actions{position:sticky;bottom:0;z-index:5;background:var(--white);margin:1rem -1rem -1rem;padding:.7rem 1rem calc(.7rem + env(safe-area-inset-bottom));border-top:1px solid var(--tan);box-shadow:0 -6px 16px rgba(43,29,21,.08);flex-wrap:nowrap}
+  .row.actions .btn{flex:1 1 auto;padding:.6rem .7rem}.row.actions .btn.primary{flex:2 1 auto}
+  .toolbar{flex-direction:column;align-items:flex-start}
+}
+@media (prefers-reduced-motion:reduce){.btn,.switch .track,.switch .track::after{transition:none}}

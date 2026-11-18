@@ -481,7 +481,7 @@ function autoCourtCore(img, dbg) {
     for (const w of ws) { if ((v - Math.max(g[o - w], g[o + w]) > CT && (st <= 70 || st < Math.min(sat[o - w], sat[o + w]) - 25)) || (v - Math.max(g[o - w * W], g[o + w * W]) > CT && (st <= 70 || st < Math.min(sat[o - w * W], sat[o + w * W]) - 25))) { on = true; break; } } if (on) { mask[o] = 1; pts.push(o); } }
   { // paint lines are thin: drop areas where the mask is dense (sunlit foliage, fences, crowds)
     const B = Math.max(16, Math.round(40 * s)), bw = Math.ceil(W / B), bh = Math.ceil(H / B), cnt = new Float32Array(bw * bh); for (const o of pts) cnt[((o / W / B) | 0) * bw + ((o % W) / B | 0)]++;
-    const bad = new Uint8Array(bw * bh); for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) { let sum = 0, n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = by + dy, xx = bx + dx; if (yy < 0 || xx < 0 || yy >= bh || xx >= bw) continue; sum += cnt[yy * bw + xx]; n++; } if (!globalThis.NOD && (cnt[by * bw + bx] > 0.3 * B * B || sum > 0.12 * n * B * B)) bad[by * bw + bx] = 1; }
+    const bad = new Uint8Array(bw * bh); for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) { let sum = 0, n = 0; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const yy = by + dy, xx = bx + dx; if (yy < 0 || xx < 0 || yy >= bh || xx >= bw) continue; sum += cnt[yy * bw + xx]; n++; } if (cnt[by * bw + bx] > 0.3 * B * B || sum > 0.12 * n * B * B) bad[by * bw + bx] = 1; }
     let k = 0; for (const o of pts) { if (bad[((o / W / B) | 0) * bw + ((o % W) / B | 0)]) mask[o] = 0; else pts[k++] = o; } pts.length = k; }
   if (dbg) dbg.pts = pts.length;
   if (pts.length < 200 || pts.length > 0.2 * W * H) return null;

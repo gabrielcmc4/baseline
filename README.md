@@ -59,3 +59,12 @@ Security choices:
 ## Credits
 
 [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3-Clause). Fonts: Marcellus and Jost (SIL Open Font License).
+
+## What changed on 2026-11-18
+
+- Videos are read by several workers at once (up to four) and stretches with nothing moving are skimmed; a 54-minute 1080p recording takes about half an hour on a 12-core PC.
+- Own MP4/MOV reader in `js/decode.js` (no dependency for the common case); frames are put back in time order when the decoder returns them out of order.
+- The court finder uses the net tape as a line of known height and follows a camera that sways (for example one hung on a fence).
+- Serve practice from a raised camera, matches with a separate view for the other player, and lessons where the user stands on the far side ("I'm on the far side of the court").
+- The session type can be changed on the result page without reading the video again.
+- Known limits: a serve is only reported when its bounce is seen; far-side shots get their speed near the net and no spin; results have not been checked against ground truth.

@@ -33,9 +33,9 @@ async function autoFind() { const token = S.autoToken = {}, msg = $('calMsg'); m
   if (best) { if (seen.length < 3) for (const pos of [550, 800]) { try { seen.push(await grabFrame(S.info, S.info.duration * pos / 1000)); } catch (e) {} } // lines hidden in one frame are often visible in another
     for (const img of seen) { if (img === best.img) continue; const r = await courtWorker(img, best.r); if (S.autoToken !== token) return; if (r && r.n > best.r.n) best.r = r; } }
   if (S.autoToken !== token) return; crumb('auto done'); S.autoToken = null; window.__baselineAuto = best ? best.r.n : 0;
-  if (!best) { msg.textContent = t('autoNone'); msg.classList.add('bad'); S.img = await grabFrame(S.info, S.info.duration * $('seek').value / 1000); drawFrame(); return; }
+  if (!best) { msg.textContent = t('autoNone'); msg.classList.add('bad'); $('manual').open = true; S.img = await grabFrame(S.info, S.info.duration * $('seek').value / 1000); drawFrame(); return; }
   S.img = best.img; $('seek').value = best.pos; S.raw = best.r.raw; S.lines = best.r.lines; S.pending = []; S.active = null; S.cal = { cam: new Camera(best.r.camP, S.info.W, S.info.H), rms: best.r.rms, perLine: best.r.perLine };
-  msg.textContent = t('autoFound', { n: best.r.n }) + ' ' + t('camInfo', { h: num(S.cal.cam.C[2], 1), d: num(-S.cal.cam.C[1], 1) }); msg.classList.add('good'); $('go').disabled = false; drawFrame(); drawMini(); }
+  msg.textContent = t('autoFound', { n: best.r.n }) + ' ' + t('camInfo', { h: num(S.cal.cam.C[2], 1), d: num(-S.cal.cam.C[1], 1) }); msg.classList.add('good'); $('manual').open = false; $('go').disabled = false; drawFrame(); drawMini(); }
 // ---- step 2: court marking
 const cv = $('frame'), cx = cv.getContext('2d');
 async function loadFrame() { S.img = await grabFrame(S.info, S.info.duration * $('seek').value / 1000); cv.width = S.info.W; cv.height = S.info.H; for (const id in S.raw) S.lines[id] = refineLine(S.img, S.raw[id][0], S.raw[id][1], 1.6 * scale()); drawFrame(); drawMini(); }
@@ -114,7 +114,7 @@ const two = () => S.mode === 'match' || (S.mode === 'coach' && (S.farMe || (S.sh
 const vis = () => two() ? S.shots.filter(q => (q.who || 'me') === (S.view || 'me')) : S.shots;
 function renderMode() { const row = $('modeRow'), sel = $('modeSel'); row.hidden = !S.frames || S.fromHistory; if (row.hidden) return; sel.innerHTML = ''; for (const m of ['coach', 'serve', 'match']) { const o = document.createElement('option'); o.value = m; o.textContent = t(m); sel.appendChild(o); } sel.value = S.mode; sel.onchange = () => changeMode(sel.value); const fm = $('farMe'); fm.checked = !!S.farMe; fm.onchange = () => { S.farMe = fm.checked; changeMode(S.mode, true); }; }
 function renderWho() { const box = $('who2'), has = two() && S.shots.some(q => q.who === 'opp'); box.hidden = !has; if (!has) { S.view = 'me'; return; } box.innerHTML = '';
-  for (const k of ['me', 'opp']) { const b = document.createElement('button'); b.className = 'btn' + ((S.view || 'me') === k ? ' primary' : ''); b.textContent = t(k === 'me' ? 'viewMe' : 'viewOpp') + ' (' + S.shots.filter(q => (q.who || 'me') === k).length + ')'; b.onclick = () => { S.view = k; S.sel = null; renderReport(); }; box.appendChild(b); } }
+  for (const k of ['me', 'opp']) { const b = document.createElement('button'); b.className = 'btn' + ((S.view || 'me') === k ? ' primary' : ''); b.textContent = t(k === 'me' ? 'viewMe' : S.mode === 'coach' ? 'viewCoach' : 'viewOpp') + ' (' + S.shots.filter(q => (q.who || 'me') === k).length + ')'; b.onclick = () => { S.view = k; S.sel = null; renderReport(); }; box.appendChild(b); } }
 function renderReport() { renderMode(); renderWho(); const sh = vis(), stats = $('stats'); stats.innerHTML = ''; updateSavebar();
   if (!sh.length) { stats.innerHTML = `<div><span>${t('noShots')}</span></div>`; $('top').innerHTML = $('side').innerHTML = $('tbl').innerHTML = $('sel').innerHTML = $('legend').innerHTML = ''; return; }
   const nIn = sh.filter(s => s.result === 'in').length, over = sh.filter(s => s.result !== 'net');
