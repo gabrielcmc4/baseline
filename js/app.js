@@ -19,7 +19,7 @@ drop.addEventListener('drop', e => e.dataTransfer.files[0] && openFile(e.dataTra
 try { const c = localStorage.getItem('baseline.crumbs'); if (c) localStorage.setItem('baseline.crumbsPrev', c); localStorage.removeItem('baseline.crumbs'); } catch (e) {}
 function crumb(m) { try { const a = JSON.parse(localStorage.getItem('baseline.crumbs') || '[]'); a.push(new Date().toISOString().slice(11, 19) + ' ' + m + (performance.memory ? ' mem ' + Math.round(performance.memory.usedJSHeapSize / 1e6) : '')); localStorage.setItem('baseline.crumbs', JSON.stringify(a.slice(-60))); } catch (e) {} }
 window.__crumb = crumb;
-async function openFile(file) { crumb('open size ' + file.size + ' type ' + file.type); $('err1').hidden = true; S.mode = document.querySelector('input[name=mode]:checked').value;
+async function openFile(file) { S.frames = null; crumb('open size ' + file.size + ' type ' + file.type); $('err1').hidden = true; S.mode = document.querySelector('input[name=mode]:checked').value;
   S.autoToken = null; if (S.info && S.info.video) { const old = S.info.video, u = old.src; try { old.pause(); old.removeAttribute('src'); old.load(); URL.revokeObjectURL(u); } catch (e) {} S.info = null; S.img = null; } // let go of the previous video: two multi-gigabyte files at once can exhaust the tab's memory
   try { S.info = await probe(file); crumb('probe ' + S.info.video.videoWidth + 'x' + S.info.video.videoHeight + ' -> ' + S.info.W + 'x' + S.info.H + ' dur ' + Math.round(S.info.duration)); S.file = file; S.lines = {}; S.raw = {}; S.pending = []; S.cal = null; S.active = 'baseline'; $('go').disabled = true; $('calMsg').textContent = ''; step(2); await loadFrame(); crumb('first frame shown'); autoFind(); }
   catch (e) { console.error(e); $('err1').textContent = t('errVideo'); $('err1').hidden = false; } }
@@ -68,15 +68,30 @@ $('check').onclick = () => { const msg = $('calMsg'); msg.className = 'msg'; con
 
 // ---- step 3: analysis
 $('go').onclick = run; $('cancel').onclick = () => { S.abort?.abort(); step(2); };
-async function run() { crumb('run mode ' + S.mode); step(3); const { W, H } = S.info, cam = S.cal.cam, det = new Detector(W, H, cam, Object.values(S.lines).flat()), frames = [], pv = $('preview'), px = pv.getContext('2d'); pv.width = W; pv.height = H;
+// the flight fitting on its own: reused when the viewer changes the kind of session after the video has been read
+function fit(bar) { const cam = S.cal.cam, { W, H } = S.info; return new Promise((res, rej) => { const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); w.onmessage = e => { if (e.data.progress != null && bar) bar.style.width = (90 + e.data.progress * 10).toFixed(1) + '%'; if (e.data.shots) { w.terminate(); S.meta = e.data.meta; res(e.data.shots); } if (e.data.error) { w.terminate(); rej(new Error(e.data.error)); } }; w.onerror = e => rej(new Error(e.message)); if (S.abort) S.abort.signal.addEventListener('abort', () => { w.terminate(); rej(new Error('aborted')); });
+    w.postMessage({ frames: S.frames, camP: cam.p, W, H, mode: S.mode }); }); }
+async function changeMode(m) { if (!S.frames || m === S.mode) return; const sel = $('modeSel'); sel.disabled = true; $('modeMsg').textContent = t('fitting'); const old = S.mode; S.mode = m;
+  try { S.shots = await fit(null); crumb('mode ' + m + ' shots ' + S.shots.length); S.sel = null; S.view = 'me'; S.saved = false; window.__baseline = { ...(window.__baseline || {}), shots: S.shots }; renderReport(); if (currentUser()) save(); } catch (e) { console.error(e); S.mode = old; sel.value = old; }
+  sel.disabled = false; $('modeMsg').textContent = ''; }
+async function run() { crumb('run mode ' + S.mode); step(3); const { W, H } = S.info, cam = S.cal.cam, pv = $('preview'), px = pv.getContext('2d'); pv.width = W; pv.height = H;
   S.abort = new AbortController(); $('stage').textContent = t('reading'); $('eta').textContent = ''; const bar = $('bar'), start = performance.now(); let k = 0, lastP = 0;
   S.info.video.pause(); S.slow = !(window.VideoDecoder && /\.(mp4|mov|m4v)$/i.test(S.file.name));
   crumb('decode start');
-  try { const r = await decodeAll(S.file, S.info, (im, tm) => { const t0 = performance.now(); const f = det.push(im.data, tm); if (f) frames.push(f); if (k % 120 === 1) crumb('detect ' + k + ' took ' + Math.round(performance.now() - t0) + 'ms cands ' + (f ? f.c2.length : -1) + ' valid ' + (f ? f.valid : '') + ' shift ' + det.shift); if (++k % 20 === 0) { px.putImageData(im, 0, 0); if (f) { px.strokeStyle = '#cbe33a'; px.lineWidth = 3; for (const c of f.c) { px.beginPath(); px.arc(c[0], c[1], 14, 0, 7); px.stroke(); } } } },
-      p => { if (Math.floor(p * 20) > Math.floor(lastP * 20)) crumb('decode ' + Math.round(p * 100) + '% frames ' + frames.length); if (p - lastP > 0.004) { lastP = p; bar.style.width = (p * 90).toFixed(1) + '%'; const el = (performance.now() - start) / 1000; if (p > 0.03) $('eta').textContent = '~' + fmtTime(el / p * (1 - p)) + ' min'; if (S.slow) $('eta').textContent = t('slowPath') + ' ' + $('eta').textContent; } }, S.abort.signal);
+  const onP = p => { if (Math.floor(p * 20) > Math.floor(lastP * 20)) crumb('decode ' + Math.round(p * 100) + '%'); if (p - lastP > 0.002 || p >= 1) { lastP = p; bar.style.width = (p * 90).toFixed(1) + '%'; const el = (performance.now() - start) / 1000; if (p > 0.02) $('eta').textContent = '~' + fmtTime(el / p * (1 - p)) + ' min'; if (S.slow) $('eta').textContent = t('slowPath') + ' ' + $('eta').textContent; } };
+  const ring = (data, balls) => { px.putImageData(new ImageData(new Uint8ClampedArray(data), W, H), 0, 0); px.strokeStyle = '#cbe33a'; px.lineWidth = 3; for (const c of balls) { px.beginPath(); px.arc(c[0], c[1], 14, 0, 7); px.stroke(); } };
+  try { let r = null, frames = null;
+    if (!S.slow && !window.__baselineNoScanWorker) try { // normal path: everything heavy happens in a worker
+      r = await new Promise((res, rej) => { const w = new Worker(new URL('./scan.js', import.meta.url), { type: 'module' }); const stop = () => { w.terminate(); rej(new Error('aborted')); }; S.abort.signal.addEventListener('abort', stop);
+        w.onmessage = e => { const d = e.data; if (d.crumb) crumb(d.crumb); else if (d.preview) ring(d.preview, d.balls); else if (d.progress != null) onP(d.progress); else if (d.done) { w.terminate(); res(d); } else if (d.error) { w.terminate(); const er = new Error(d.error); er.got = d.got; rej(er); } };
+        w.onerror = e => { w.terminate(); const er = new Error(e.message || 'worker'); er.got = 0; rej(er); };
+        w.postMessage({ file: S.file, W, H, duration: S.info.duration, camP: Array.from(cam.p), refPts: Object.values(S.lines).flat() }); });
+      frames = r.frames; S.info.fps = r.fps; r.fast = true; crumb('scan done frames ' + frames.length + ' moved ' + r.maxShift + 'px busy ' + r.busy);
+    } catch (e) { if (e.message === 'aborted' || e.got > 0) throw e; crumb('scan worker failed: ' + e.message); r = null; }
+    if (!r) { const det = new Detector(W, H, cam, Object.values(S.lines).flat()); frames = []; lastP = 0; // fallback on the page itself (other containers, browsers without WebCodecs)
+      r = await decodeAll(S.file, S.info, (im, tm) => { const f = det.push(im.data, tm); if (f) frames.push(f); if (++k % 20 === 0) ring(im.data, f ? f.c : []); }, onP, S.abort.signal); }
     crumb('fitting, fast ' + r.fast + ' frames ' + frames.length); $('stage').textContent = t('fitting'); $('eta').textContent = '';
-    S.shots = await new Promise((res, rej) => { const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); w.onmessage = e => { if (e.data.progress != null) bar.style.width = (90 + e.data.progress * 10).toFixed(1) + '%'; if (e.data.shots) { w.terminate(); S.meta = e.data.meta; res(e.data.shots); } if (e.data.error) { w.terminate(); rej(new Error(e.data.error)); } }; w.onerror = e => rej(new Error(e.message)); S.abort.signal.addEventListener('abort', () => { w.terminate(); rej(new Error('aborted')); });
-      w.postMessage({ frames, camP: cam.p, W, H, mode: S.mode }); });
+    S.frames = frames; S.shots = await fit(bar);
     window.__baseline = { shots: S.shots, frames: frames.length, seconds: (performance.now() - start) / 1000, fast: r.fast };
     crumb('shots ' + S.shots.length); S.sel = null; S.view = 'me'; S.saved = false; S.fromHistory = false; S.sid = sessionId(S.file); $('sdate').value = fileDate(S.file); step(4); renderReport(); if (currentUser()) save();
   } catch (e) { if (e.message === 'aborted') return; console.error(e); crumb('error ' + e.message); step(2); const m = $('calMsg'); m.className = 'msg bad'; m.textContent = t('errAnalyze', { e: e.message }); }
@@ -86,9 +101,10 @@ async function run() { crumb('run mode ' + S.mode); step(3); const { W, H } = S.
 const med = a => { a = a.filter(v => v != null && isFinite(v)).sort((x, y) => x - y); return a.length ? a[a.length >> 1] : null; };
 // in a match the report shows one player at a time: the near player ("me") or the opponent on the far side
 const vis = () => S.mode === 'match' ? S.shots.filter(q => (q.who || 'me') === (S.view || 'me')) : S.shots;
+function renderMode() { const row = $('modeRow'), sel = $('modeSel'); row.hidden = !S.frames || S.fromHistory; if (row.hidden) return; sel.innerHTML = ''; for (const m of ['coach', 'serve', 'match']) { const o = document.createElement('option'); o.value = m; o.textContent = t(m); sel.appendChild(o); } sel.value = S.mode; sel.onchange = () => changeMode(sel.value); }
 function renderWho() { const box = $('who2'), has = S.mode === 'match' && S.shots.some(q => q.who === 'opp'); box.hidden = !has; if (!has) { S.view = 'me'; return; } box.innerHTML = '';
   for (const k of ['me', 'opp']) { const b = document.createElement('button'); b.className = 'btn' + ((S.view || 'me') === k ? ' primary' : ''); b.textContent = t(k === 'me' ? 'viewMe' : 'viewOpp') + ' (' + S.shots.filter(q => (q.who || 'me') === k).length + ')'; b.onclick = () => { S.view = k; S.sel = null; renderReport(); }; box.appendChild(b); } }
-function renderReport() { renderWho(); const sh = vis(), stats = $('stats'); stats.innerHTML = ''; updateSavebar();
+function renderReport() { renderMode(); renderWho(); const sh = vis(), stats = $('stats'); stats.innerHTML = ''; updateSavebar();
   if (!sh.length) { stats.innerHTML = `<div><span>${t('noShots')}</span></div>`; $('top').innerHTML = $('side').innerHTML = $('tbl').innerHTML = $('sel').innerHTML = $('legend').innerHTML = ''; return; }
   const nIn = sh.filter(s => s.result === 'in').length, over = sh.filter(s => s.result !== 'net');
   const tile = (v, u, l) => { const d = document.createElement('div'); d.innerHTML = `<b>${v}<small>${u}</small></b><span>${l}</span>`; stats.appendChild(d); };

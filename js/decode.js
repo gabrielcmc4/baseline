@@ -84,7 +84,7 @@ export async function parseMp4(file) {
     return { codec, description, width, height, ang, timescale, n, size, offset, dts, cts, sync, cmin, duration: tt / timescale, summary }; }
   throw new Error('no usable video track (' + summary.join(',') + ')');
 }
-async function decodeDirect(file, info, onFrame, onProgress, signal) {
+export async function decodeDirect(file, info, onFrame, onProgress, signal) {
   const m = await parseMp4(file), { W, H } = info, fps = m.n / (m.duration || info.duration), stride = fps > 75 ? Math.round(fps / 60) : 1; info.fps = fps / stride;
   const turned = (m.width > m.height) !== (W > H) && W !== H, rot = turned ? (m.ang === 270 ? 270 : 90) : (m.ang === 180 ? 180 : 0);
   globalThis.__crumb?.('direct ' + m.summary.join(',') + ' ' + m.codec + ' ' + m.width + 'x' + m.height + ' samples ' + m.n + ' fps ' + fps.toFixed(1) + ' rot ' + rot);

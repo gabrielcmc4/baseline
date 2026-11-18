@@ -144,7 +144,7 @@ export class Detector {
       if (Math.abs(b[0] - a[0]) > 1) yb = a[1] + (x - a[0]) * (b[1] - a[1]) / (b[0] - a[0]);
       this.cut[x] = Math.max(0, Math.min(H - 2, Math.round(yb - 10 * this.s))); this.tape[x] = Math.round(cam.tapeY(x) + 20 * this.s);
     }
-    this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.mt = 15; this.n = 0; this.shift = [0, 0]; this.valid = true; this.maxShift = 0;
+    this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.mt = 15; this.n = 0; this.shift = [0, 0]; this.valid = true; this.maxShift = 0; this.busy = 0;
     this.ref = refPts || []; this.refScore = null; this.cw = Math.ceil(W / 4); this.ch = Math.ceil(H / 4); this.coarse = new Uint16Array(this.cw * this.ch);
   }
   _gray(rgba) { const W = this.W, H = this.H, g = new Uint8Array(W * H), t = new Uint8Array(W * H);
@@ -186,7 +186,7 @@ export class Detector {
           rel = yc - (yp > yn ? yp : yn) >= 22 && gg - (pd[jp + 1] > nd[jn + 1] ? pd[jp + 1] : nd[jn + 1]) >= 8 && gg >= r - 25; }
         if (ok) { hits.push(o); this.kind[o] = 1; } else if (rel) hits.push(o); } }
     const out = { t: c.t, c: [], c2: [], blobs: [], valid: c.valid, cut: c.cut }; // c: blobs with clear ball colour; c2: also small blobs that only pass the weaker test
-    if (!(c.valid && hits.length < 4000)) for (const o of hits) this.kind[o] = 0;
+    if (!(c.valid && hits.length < 4000)) for (const o of hits) this.kind[o] = 0; if (hits.length >= 4000) this.busy++; // too much of the picture moving at once (wind in trees, camera knocked): the frame cannot be used
     if (c.valid && hits.length < 4000) {
       for (const o of hits) { mask[o - W - 1] = mask[o - W] = mask[o - W + 1] = mask[o - 1] = mask[o] = mask[o + 1] = mask[o + W - 1] = mask[o + W] = mask[o + W + 1] = 1; }
       const stack = [], mxs = 45 * this.s, amax = 500 * this.s * this.s;
