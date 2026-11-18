@@ -264,6 +264,8 @@ function fitFlight(cam, t, uv, prior, s, freeSpin, warm) {
       for (const T of [0.8, 1.4]) { const x0 = [...p0, (gp[0] - p0[0]) / T, Math.min(-3.5, (gp[1] - p0[1]) / T), (-p0[2] + 0.5 * G * T * T) / T, 0]; const r = lm(res, freeSpin ? x0 : x0.slice(0, 6), { lb: freeSpin ? lb : lb.slice(0, 6), ub: freeSpin ? ub : ub.slice(0, 6), nRobust: 2 * n, fScale: 2, maxIter: 40 }); if (!best || r.cost < best.cost) best = r; } } }
   else
   if (warm) best = lm(res, freeSpin ? warm : warm.slice(0, 6), { lb: freeSpin ? lb : lb.slice(0, 6), ub: freeSpin ? ub : ub.slice(0, 6), nRobust: 2 * n, fScale: 2, maxIter: 40 });
+  else if (prior.serve) { for (const y0 of [-0.4, 0.5]) { const sc = (y0 - cam.C[1]) / d0[1]; if (!(sc > 0)) continue; const p0 = cam.C.map((c, i) => c + sc * d0[i]); if (p0[2] < 1.5 || p0[2] > 3.6) continue; // a serve: the ball starts above the server's head near the baseline
+      for (const T of [0.45, 0.75]) { const x0 = [...p0, (0 - p0[0]) / T, (17.5 - p0[1]) / T, (-p0[2] + 0.5 * G * T * T) / T, 0]; const r = lm(res, freeSpin ? x0 : x0.slice(0, 6), { lb: freeSpin ? lb : lb.slice(0, 6), ub: freeSpin ? ub : ub.slice(0, 6), nRobust: 2 * n, fScale: 2, maxIter: 40 }); if (!best || r.cost < best.cost) best = r; } } }
   else for (const z0 of [0.6, 1.2, 2.2]) { const sc = (z0 - cam.C[2]) / d0[2]; if (!(sc > 0)) continue; const p0 = cam.C.map((c, i) => c + sc * d0[i]);
     for (const T of [0.7, 1.2]) { const v0 = [(0 - p0[0]) / T, (17 - p0[1]) / T, (-z0 + 0.5 * G * T * T) / T];
       const x0 = [...p0, ...v0, 0]; const r = lm(res, freeSpin ? x0 : x0.slice(0, 6), { lb: freeSpin ? lb : lb.slice(0, 6), ub: freeSpin ? ub : ub.slice(0, 6), nRobust: 2 * n, fScale: 2, maxIter: 40 });
@@ -353,8 +355,30 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit, netZ: netHit ? o.zNet : null, serve, target, feetY: fg ? fg[1] : null,
       path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv });
   });
+  // ---- serves hit from the near side. Seen from a camera a few metres up, the ball leaves the racket above the net tape in the picture and comes DOWN the picture while it flies away, so it never qualifies as an ordinary near-side shot.
+  const usedS = new Set(); meta.nearServes = 0;
+  if (mode !== 'coach' && !only) for (let a = 0; a < segs.length; a++) { if (usedS.has(a)) continue; const q = segs[a], x0 = q[0][1], y0 = q[0][2], e0 = q[q.length - 1];
+    if (y0 > cam.tapeY(x0) - 5 * s || e0[2] < y0 + 20 * s) continue; const chain = [q], idx = [a];
+    for (let b = a + 1; b < segs.length; b++) { if (usedS.has(b)) continue; const r = segs[b], last = chain[chain.length - 1], gap = r[0][0] - last[last.length - 1][0]; if (gap > 6 / fs) break; if (gap < -1) continue;
+      const k = Math.min(last.length, 6), sg = last.slice(-k), f = sg.map(p => p[0] - r[0][0]), px = polyval(polyfit(f, sg.map(p => p[1]), 1), 0), py = polyval(polyfit(f, sg.map(p => p[2]), k >= 4 ? 2 : 1), 0);
+      if (Math.hypot(px - r[0][1], py - r[0][2]) < (15 + 3 * gap) * s && r[r.length - 1][2] > r[0][2]) { chain.push(r); idx.push(b); } }
+    const seenF = new Set(), pts = []; for (const sg of chain) for (const p of sg) if (!seenF.has(p[0])) { seenF.add(p[0]); pts.push(p); } pts.sort((u, v) => u[0] - v[0]); if (pts.length < 6) continue;
+    const end = pts[pts.length - 1], gpe = cam.ground(end[1], end[2]); if (!gpe || gpe[1] < COURT.NET - 1 || gpe[1] > COURT.LEN + 12) continue; // last seen on the near side of the net: not a serve going away
+    const d0 = cam.ray(x0, y0), sc0 = (0 - cam.C[1]) / d0[1], zB = cam.C[2] + sc0 * d0[2]; if (!(sc0 > 0) || zB < 1.6 || zB > 3.6) continue; // over the baseline it must be at a height a racket can reach
+    let ground = null; for (const r of segs) { const g0 = r[0][0] - end[0]; if (g0 < 0 || g0 > 3 || r === chain[chain.length - 1]) continue; if (Math.hypot(r[0][1] - end[1], r[0][2] - end[2]) < 14 * s && r.length >= 4 && r[Math.min(3, r.length - 1)][2] < r[0][2] - 2 * s) { ground = gpe; break; } }
+    meta.nearServes++; const t0 = ts[pts[0][0]], t = pts.map(p => ts[p[0]] - t0), uv = pts.map(p => [p[1], p[2]]), prior = { serve: true, y: 0.1, ySd: 0.8, z: 2.7, zSd: 0.4, clSd, ground };
+    const fit = fitFlight(cam, t, uv, prior, s, true); if (!fit || fit.rms > 3) { meta.rej.rms++; continue; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 50 || speed > 260) { meta.rej.speed++; continue; }
+    const sum = flightSummary(x); if (!sum.land) { meta.rej.noland++; continue; }
+    const sd = covariance(fit, y => { const w = flightSummary(y); return [w.land ? w.land[0] : 0, w.land ? w.land[1] : 0, w.net ? w.net[2] : 0, y[6]]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9]; if (sd[1] > (ground ? 3 : 2.5)) { meta.rej.depth++; continue; }
+    const C = COURT, [lx, ly] = sum.land, left = x[0] > 0, target = left ? 'left' : 'right'; let result;
+    if (!sum.net || sum.clear < 0) result = 'net'; else { const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
+    let close = false; if (result !== 'net') { const xs = left ? [-C.S, 0] : [0, C.S]; close = Math.abs(ly - (C.LEN - C.SV)) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
+    const rpm = spinFromCl(x[6], v0), rpmHi = spinFromCl(x[6] + sd[3], v0), rpmLo = spinFromCl(x[6] - sd[3], v0); for (const i of idx) usedS.add(i);
+    shots.push({ t: t0, who: 'me', far: false, bounce: !!ground, n: pts.length, nTotal: pts.length, rms: fit.rms, rmsFlat: null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
+      land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit: false, netZ: null, serve: true, target, feetY: null,
+      path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv }); }
   // ---- balls coming toward the camera: the opponent's shots in a match, or serves hit from the far side in serve practice
-  if (mode !== 'coach' && !only) { const usedI = new Set(); meta.incoming = 0;
+  if (mode !== 'coach' && !only) { const usedI = new Set(usedS); meta.incoming = 0;
     for (let a = 0; a < segs.length; a++) { if (usedI.has(a)) continue; const q = segs[a], x0 = q[0][1], y0 = q[0][2], e0 = q[q.length - 1];
       if (y0 > cam.tapeY(x0) + 12 * s || e0[2] < y0 + 40 * s) continue; // must start at or above the net tape and travel down the picture
       const chain = [q]; usedI.add(a);
