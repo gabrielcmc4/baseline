@@ -187,7 +187,7 @@ export class Detector {
         const sat = 255 * df / mx;
         let ok = (h >= 20 && h <= 50 && sat >= 60) || (y < this.tape[x] && h >= 20 && h <= 80 && sat >= 30 && mx >= 185);
         let rel = false; if (!ok && d1 >= 30 && d2 >= 30) { const pd = p.rgba, nd = nx.rgba, jp = j + 4 * op, jn = j + 4 * on, yc = (r + gg) / 2 - b, yp = (pd[jp] + pd[jp + 1]) / 2 - pd[jp + 2], yn = (nd[jn] + nd[jn + 1]) / 2 - nd[jn + 2]; // more yellow-green than what was there before and after
-          rel = yc - (yp > yn ? yp : yn) >= 22 && gg - (pd[jp + 1] > nd[jn + 1] ? pd[jp + 1] : nd[jn + 1]) >= 8 && gg >= r - 25; }
+          rel = yc - (yp > yn ? yp : yn) >= 22 && gg - (pd[jp + 1] > nd[jn + 1] ? pd[jp + 1] : nd[jn + 1]) >= 8 && gg >= r - 25 && b <= (pd[jp + 2] < nd[jn + 2] ? pd[jp + 2] : nd[jn + 2]) + 14; } // a yellow ball adds red and green but no blue; a patch of sun or a white line coming into view adds all three
         if (!ok && !rel) continue;
         // a camera that moved a fraction of a pixel makes every sharp edge (leaves, court lines) look like movement: a real ball is still different when the neighbouring frames are allowed to slip by one pixel (only for a camera that has been seen to move: on a fixed one this would cost real, faint balls)
         if (this.maxShift >= 4) { const pg = p.g, ng = nx.g, o1 = o + op, o2 = o + on; let m1 = 255, m2 = 255; for (let dy = -W; dy <= W; dy += W) for (let dx = -1; dx <= 1; dx++) { let v = a - pg[o1 + dy + dx]; if (v < 0) v = -v; if (v < m1) m1 = v; v = a - ng[o2 + dy + dx]; if (v < 0) v = -v; if (v < m2) m2 = v; } if (m1 <= MT || m2 <= MT) continue; }
