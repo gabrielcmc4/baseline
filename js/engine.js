@@ -162,7 +162,7 @@ export class Detector {
     else { [bx, by, best] = search(cx0, cy0, mode ? Math.round(8 * this.s) : 2, 1); const sc = score(cx0, cy0); if (best < 1.01 * sc) { bx = cx0; by = cy0; best = sc; } } // do not chase noise: move only for a clear gain
     if (this.refScore === null) { this.refScore = best; this.refScore0 = best; this.lostFor = 0; }
     this.valid = best > 0.8 * this.refScore && Math.abs(bx) < RM && Math.abs(by) < RM; this.shift = [bx, by];
-    if (!this.valid && mode === 2 && peak > 1.25 && best > 0.45 * this.refScore0 && Math.abs(bx) < RM && Math.abs(by) < RM && ++this.lostFor > 4) { this.refScore = best; this.valid = true; } // the lines are clearly there, only fainter or brighter than at the start (sun, shade): take this as the new normal
+    if (!this.valid && !this.strict && mode === 2 && peak > 1.25 && best > 0.45 * this.refScore0 && Math.abs(bx) < RM && Math.abs(by) < RM && ++this.lostFor > 4) { this.refScore = best; this.valid = true; } // the lines are clearly there, only fainter or brighter than at the start (sun, shade): take this as the new normal
     if (this.valid) { this.lostFor = 0; this.refScore = 0.98 * this.refScore + 0.02 * best; }
     if (Math.abs(bx) > this.maxShift) this.maxShift = Math.abs(bx); if (Math.abs(by) > this.maxShift) this.maxShift = Math.abs(by); }
   // push a frame; returns {t, c:[[x,y,area]], blobs:[[x0,y0,x1,y1]], valid} for the PREVIOUS frame (or null)
@@ -174,8 +174,8 @@ export class Detector {
     let cut = false; if (this.blk) { let c = 0; for (let i = 0; i < blk.length; i++) { const e = blk[i] - this.blk[i]; if (e > 12 || e < -12) c++; } cut = c / blk.length > 0.45; } this.blk = blk; // a swaying camera changes a good part of the picture too; only a change of scene counts
     this._drift(g, cut || this.n === 0 ? 2 : this.n % 15 === 0 ? 1 : 0); if (!this.valid && !cut) this._drift(g, 2); // lost the court: look further away, but not on every frame
     this.bufs.push({ rgba, g, t, shift: this.shift.slice(), valid: this.valid, cut }); this.n++;
-    if (this.bufs.length < 3) return null;
-    const [p, c, nx] = this.bufs, W = this.W, H = this.H, mask = this.mask, hits = [], d = c.rgba, coarse = this.coarse, cw = this.cw; coarse.fill(0);
+    // At 50-60 pictures a second a ball flying away from the camera moves only two or three pixels from one picture to the next and overlaps itself, so it would not count as moving: compare with the pictures two steps away instead (decided picture by picture: phone video does not keep a steady rhythm).
+    if (this.bufs.length < 5) return null; const B = this.bufs, c = B[2], p = c.t - B[1].t >= 0.028 ? B[1] : B[0], nx = B[3].t - c.t >= 0.028 ? B[3] : B[4], W = this.W, H = this.H, mask = this.mask, hits = [], d = c.rgba, coarse = this.coarse, cw = this.cw; coarse.fill(0);
     // compare each pixel with the same court spot in the neighbouring frames, allowing for the camera having moved a little in between
     const op = (p.shift[1] - c.shift[1]) * W + (p.shift[0] - c.shift[0]), on = (nx.shift[1] - c.shift[1]) * W + (nx.shift[0] - c.shift[0]), mg = 2 + Math.round(16 * this.s), MT = this.mt;
     for (let y = mg; y < H - mg; y++) { let o = y * W + mg;
@@ -305,7 +305,12 @@ function quiet(frames) { const G = 20, cnt = new Map(), key = q => ((q[1] / G) |
   const B = 12, bc = new Map(); let nb = 0; for (const f of frames) { const l = f.c2 || f.c; if (l.length <= B) continue; nb++; const seen = new Set(); for (const q of l) { const k = key(q); if (!seen.has(k)) { seen.add(k); bc.set(k, (bc.get(k) || 0) + 1); } } }
   const blim = Math.max(8, 0.01 * nb), bbad = new Set(); for (const [k, v] of bc) if (v > blim) bbad.add(k); if (!bad.size && !bbad.size) return { frames, cells: 0, removed: 0 };
   let removed = 0; return { frames: frames.map(f => { const burst = (f.c2 || f.c).length > B, keep = q => { const k = key(q); if (bad.has(k) || (burst && bbad.has(k))) { removed++; return false; } return true; }; return { ...f, c: f.c.filter(keep), c2: f.c2 && f.c2.filter(keep) }; }), cells: bad.size + bbad.size, removed }; }
-export function analyze(frames0, cam, opts = {}) { const qz = quiet(frames0), frames = qz.frames, out = analyze2(frames, cam, opts); out.meta.noisy = [qz.cells, qz.removed]; return out; }
+// A video put together from several views (a highlights reel, a zoom between clips, the phone moved to another spot): each stretch has its own camera, found by the Scanner below, and is fitted on its own.
+export function analyze(frames0, cam, opts = {}) { if (opts.cams && frames0.some(f => f.seg)) { const groups = new Map(); for (const f of frames0) { const k = f.seg || 0; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(f); }
+    const all = []; let meta = null, done = 0; for (const [sg, fr] of groups) { done += fr.length; if (fr.length < 20 || !opts.cams[sg]) continue; const r = analyzeOne(fr, new Camera(opts.cams[sg], cam.W, cam.H), { ...opts, cams: null, onProgress: null }); for (const q of r) { q.seg = sg; all.push(q); } if (!meta || r.length > meta.n) meta = { ...r.meta, n: r.length }; if (opts.onProgress) opts.onProgress(done / frames0.length); }
+    all.sort((a, b) => a.t - b.t); all.meta = { ...(meta || { rej: {} }), views: groups.size }; return all; }
+  return analyzeOne(frames0, cam, opts); }
+function analyzeOne(frames0, cam, opts = {}) { const qz = quiet(frames0), frames = qz.frames, out = analyze2(frames, cam, opts); out.meta.noisy = [qz.cells, qz.removed]; return out; }
 function analyze2(frames, cam, opts = {}) { const p = opts.onProgress, a = analyzeCore(frames, cam, { ...opts, onProgress: p && (v => p(v / 2)) });
   if (opts.only || !frames.some(f => f.c2 && f.c2.length > f.c.length)) { a.meta.colour = 'strict'; return a; }
   const b = analyzeCore(frames.map(f => ({ ...f, c: f.c2 || f.c })), cam, { ...opts, onProgress: p && (v => p(0.5 + v / 2)) });
@@ -349,15 +354,17 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
   const shots = [];
   obs.forEach((o, ci) => { if (onProgress) onProgress(ci / obs.length); if (only && !only.some(q => Math.abs(q - o.t0) < 0.3)) return;
     if (mode === 'serve') { const d0 = cam.ray(o.uv[0][0], o.uv[0][1]), sc = (0 - cam.C[1]) / d0[1]; if (!(sc > 0) || cam.C[2] + sc * d0[2] < 1.5) { meta.rej.notServe = (meta.rej.notServe || 0) + 1; return; } } // serve practice: a ball that starts low over the baseline is not a serve, no need to fit it
-    const r = fitOne(o, meta.yOff); if (!r) { meta.rej.nofit++; return; } let { fit, t, uv, n, prior } = r; const fg = o.fg, t0 = o.t0; let netHit = false;
+    const r = fitOne(o, meta.yOff); if (!r) { meta.rej.nofit++; return; }
+    let { fit, t, uv, n, prior } = r; const fg = o.fg, t0 = o.t0; let netHit = false;
     if (fg && n === o.t.length && o.zNet > 0.05 && o.zNet < 1.12 && fit.rms <= 3 && Math.abs(simulateAt(fit.x, [t[n - 1]])[0][1] - COURT.NET) < 2.5) { // died in the net: pin the last point to the net plane
       prior = { ...prior, anchorNet: true }; const f2 = fitFlight(cam, t, uv, prior, s, true, fit.x); if (f2 && f2.rms <= 3) { fit = f2; netHit = true; } }
     if (fit.rms > 3) { meta.rej.rms++; return; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 30 || speed > 230 || x[4] < 6) { meta.rej.speed++; return; }
     const sum = flightSummary(x); if (!sum.land) { meta.rej.noland++; return; }
     const flat = fitFlight(cam, t, uv, prior, s, false, x);
     const sd = covariance(fit, y => { const q = flightSummary(y); return [q.land ? q.land[0] : 0, q.land ? q.land[1] : 0, q.net ? q.net[2] : 0, y[6]]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9];
-    if (sd[1] > 3) { meta.rej.depth++; return; }
-    const C = COURT, [lx, ly] = sum.land, serve = x[2] > 2.0 && x[1] < 1.5; let result, target = null;
+    // The ball is often lost near the top of its path (far away it is two pixels wide and nearly still in the picture). Speed, direction and height over the net are then well measured but how deep it lands is not: a clean, long enough track is kept and marked as an estimate rather than thrown away.
+    const approx = sd[1] > 3; if (approx && !(mode !== 'serve' && sd[1] <= 5 && fit.rms <= 1.5 && n >= 12 && n === o.t.length && sd[2] <= 0.5 && sum.net && sum.clear > 0)) { meta.rej.depth++; return; } if (approx) meta.approx = (meta.approx || 0) + 1;
+    const C = COURT, [lx, ly] = sum.land, serve = x[2] > 2.0 && x[1] < 1.5 && (mode === 'serve' || (x[2] > 2.2 && x[5] < 2.5)); let result, target = null; // outside serve practice a high ball still going up fast is a rally ball taken at shoulder height, not a serve
     if (mode === 'serve' && !serve) { meta.rej.notServe = (meta.rej.notServe || 0) + 1; return; } // serve practice: a ball bounced on the ground or rolled back is not a serve
     if (netHit || !sum.net || sum.clear < 0) result = 'net';
     else if (mode === 'serve' || (mode === 'match' && serve)) { const left = x[0] > 0; target = left ? 'left' : 'right';
@@ -366,7 +373,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     let close = false; if (result !== 'net') { const yLim = (mode === 'serve' || (mode === 'match' && serve)) ? C.LEN - C.SV : C.LEN, xs = target ? (target === 'left' ? [-C.S, 0] : [0, C.S]) : [-C.S, C.S];
       close = Math.abs(ly - yLim) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
     const rpm = spinFromCl(x[6], v0), rpmHi = spinFromCl(x[6] + sd[3], v0), rpmLo = spinFromCl(x[6] - sd[3], v0);
-    shots.push({ t: t0, who: 'me', far: false, n, nTotal: o.t.length, rms: fit.rms, rmsFlat: flat ? flat.rms : null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
+    shots.push({ t: t0, who: 'me', far: false, approx, n, nTotal: o.t.length, rms: fit.rms, rmsFlat: flat ? flat.rms : null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
       land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit, netZ: netHit ? o.zNet : null, serve, target, feetY: fg ? fg[1] : null,
       path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv });
   });
@@ -393,18 +400,20 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
         const tau = (by[0] - ay[0]) / (ay[1] - by[1]); if (!(tau > -0.02) || tau > gap + 0.02) continue; const yy = ay[0] + ay[1] * tau, xx = 0.5 * (ax[0] + ax[1] * tau + bx[0] + bx[1] * tau), g = cam.ground(xx, yy); if (!g || g[1] < COURT.NET - 2 || g[1] > COURT.LEN + 8) continue;
         groundAt = { t: tE - ts[pts[0][0]] + Math.max(0, tau), g }; break; } }
     if (mode !== 'serve') { // in a match most balls first seen high and coming down are ordinary shots caught late; a serve is the one that follows a toss: a slow, nearly vertical track ending where this one starts
-      const tS = ts[pts[0][0]]; let toss = false; for (const r of segs) { const e = r[r.length - 1], dt = tS - ts[e[0]]; if (dt < -0.05 || dt > 0.5 || r === chain[0]) continue; if (Math.hypot(e[1] - pts[0][1], e[2] - pts[0][2]) > 60 * s) continue; const dx = Math.abs(e[1] - r[0][1]), dy = Math.abs(e[2] - r[0][2]), dur = ts[e[0]] - ts[r[0][0]]; if (dy > 25 * s && dx < 0.5 * dy && dur > 0.25) { toss = true; break; } }
+      const tS = ts[pts[0][0]]; let toss = false; for (const r of segs) { const e = r[r.length - 1], dt = tS - ts[e[0]]; if (dt < -0.05 || dt > 0.5 || r === chain[0]) continue; if (Math.hypot(e[1] - pts[0][1], e[2] - pts[0][2]) > 100 * s) continue; const dx = Math.abs(e[1] - r[0][1]), dy = Math.abs(e[2] - r[0][2]), dur = ts[e[0]] - ts[r[0][0]]; if (dy > 25 * s && dx < 0.6 * dy && dur >= 0.12) { toss = true; break; } } // often only the last bit of the toss, falling into the hit, is seen
       if (!toss) { meta.rej.noToss = (meta.rej.noToss || 0) + 1; continue; } }
-    meta.nearServes++; if (!ground && !groundAt) { meta.rej.noBounce = (meta.rej.noBounce || 0) + 1; continue; } // a ball flying straight away from the camera can be fast and deep or slow and short and draw nearly the same line in the picture: without the bounce the serve cannot be measured honestly
+    meta.nearServes++; const blind = !ground && !groundAt; if (blind && mode === 'serve') { meta.rej.noBounce = (meta.rej.noBounce || 0) + 1; continue; } // a ball flying straight away from the camera can be fast and deep or slow and short and draw nearly the same line in the picture: without the bounce the serve cannot be measured honestly
     const t0 = ts[pts[0][0]], t = pts.map(p => ts[p[0]] - t0), uv = pts.map(p => [p[1], p[2]]), prior = { serve: true, y: 0.2, ySd: 0.5, z: 2.7, zSd: 0.4, clSd, ground, groundAt, rad: pts.map(p => Math.sqrt(p[3] / Math.PI)) };
-    const fit = fitFlight(cam, t, uv, prior, s, true); if (!fit || fit.rms > 3) { meta.rej.rms++; continue; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 50 || speed > 260) { meta.rej.speed++; continue; }
+    const fit = fitFlight(cam, t, uv, prior, s, true); if (!fit || fit.rms > 3) { meta.rej.rms++; continue; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 50 || speed > 260 || (mode !== 'serve' && (speed > 215 || pts.length < 10))) { meta.rej.speed++; continue; } // in a match a handful of points at a record-breaking speed is something else that was moving
     const sum = flightSummary(x); if (!sum.land) { meta.rej.noland++; continue; }
+    // From a low camera the far service box lies behind the net band, so the bounce of a serve is hidden. After a seen toss, a clean track followed until just before the landing still fixes the serve well enough; it is marked as an estimate.
     const sd = covariance(fit, y => { const w = flightSummary(y); return [w.land ? w.land[0] : 0, w.land ? w.land[1] : 0, w.net ? w.net[2] : 0, y[6]]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9]; if (sd[1] > (ground || groundAt ? 3 : 2.5)) { meta.rej.depth++; continue; }
+    if (blind && !(fit.rms <= 1.5 && pts.length >= 15 && sd[1] <= 1.5 && sum.tLand - t[t.length - 1] < 0.25)) { meta.rej.noBounce = (meta.rej.noBounce || 0) + 1; continue; } if (blind) meta.approx = (meta.approx || 0) + 1;
     const C = COURT, [lx, ly] = sum.land, left = x[0] > 0, target = left ? 'left' : 'right'; let result;
     if (!sum.net || sum.clear < 0) result = 'net'; else { const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
     let close = false; if (result !== 'net') { const xs = left ? [-C.S, 0] : [0, C.S]; close = Math.abs(ly - (C.LEN - C.SV)) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
     const rpm = spinFromCl(x[6], v0), rpmHi = spinFromCl(x[6] + sd[3], v0), rpmLo = spinFromCl(x[6] - sd[3], v0); for (const i of idx) usedS.add(i);
-    shots.push({ t: t0, who: 'me', far: false, bounce: !!(ground || groundAt), n: pts.length, nTotal: pts.length, rms: fit.rms, rmsFlat: null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
+    shots.push({ t: t0, who: 'me', far: false, approx: blind, bounce: !!(ground || groundAt), n: pts.length, nTotal: pts.length, rms: fit.rms, rmsFlat: null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
       land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit: false, netZ: null, serve: true, target, feetY: null,
       path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv }); }
   ms.serve = Date.now() - T0;
@@ -557,3 +566,13 @@ function autoCourtCore(img, dbg) {
     if (!pick || n > pick.n || (n === pick.n && cal.rms < pick.cal.rms)) pick = { raw, lines, cal, n }; }
   return pick;
 }
+
+// Follows the court through a whole video. As long as the lines of the current view are found (allowing for a swaying camera) frames go to one Detector. When they are lost for a moment, or the picture changes abruptly, the court is searched for again in the new picture: a new view gets its own camera and its own stretch of frames.
+export class Scanner { constructor(W, H, camP, refPts) { this.W = W; this.H = H; this.cams = [Array.from(camP)]; this.seg = 0; this.lost = 0; this.lastTry = -1e9; this.recal = 0; this.failed = 0; this.maxShift = 0; this.busy = 0; this.dropped = 0; this._new(camP, refPts); }
+  _new(camP, refPts) { if (this.det) { this.maxShift = Math.max(this.maxShift, this.det.maxShift); this.busy += this.det.busy; this.dropped += this.det.dropped; } this.det = new Detector(this.W, this.H, new Camera(camP, this.W, this.H), refPts); this.det.strict = true; this.fresh = true; }
+  get shift() { return this.det.shift; }
+  push(rgba, t) { const f = this.det.push(rgba, t); const bad = !this.det.valid; this.lost = bad ? this.lost + 1 : 0;
+    if ((this.lost >= 6 || (f && f.cut)) && t - this.lastTry > (this.wait || 0.7)) { this.lastTry = t; const img = { width: this.W, height: this.H, data: rgba }; let c = null; try { c = autoCourt(img); if (c) { const g = growCourt(img, c); if (g.n > c.n) c = g; } } catch (e) { c = null; }
+      if (c && (c.lines.service || c.lines.tapeL || c.lines.tapeR || c.lines.farBaseline)) { this.cams.push(Array.from(c.cal.cam.p)); this.seg = this.cams.length - 1; this.recal++; this.lost = 0; this.wait = 0.7; this._new(c.cal.cam.p, Object.values(c.lines).flat()); return null; } this.failed++; this.wait = Math.min(6, (this.wait || 0.7) * 2); } // no court in sight (close-up, camera being moved): look again less and less often
+    if (!f) return null; f.seg = this.seg; if (this.fresh) { f.cut = true; this.fresh = false; } return f; }
+  totals() { return { maxShift: Math.max(this.maxShift, this.det.maxShift), busy: this.busy + this.det.busy, dropped: this.dropped + this.det.dropped, recal: this.recal, failed: this.failed }; } }

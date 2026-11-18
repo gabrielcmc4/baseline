@@ -3,7 +3,8 @@ const NS = 'http://www.w3.org/2000/svg';
 const el = (n, a = {}, parent, text) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); if (text != null) e.textContent = text; if (parent) parent.appendChild(e); return e; };
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 export const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
-export const resLabel = s => t(s.result) + (s.close ? ' (' + t('closeCall') + ')' : '');
+export const isEst = s => !!(s.approx || (s.landSd && s.landSd[1] > 3)); // landing depth only estimated: the ball was lost before it came down
+export const resLabel = s => t(s.result) + (isEst(s) && s.result !== 'net' ? ' (' + t('estLand') + ')' : s.close ? ' (' + t('closeCall') + ')' : '');
 export function spinKind(s) { if (Math.abs(s.cl) < Math.max(s.clSd, 0.02)) return 'flat'; return s.cl > 0 ? 'topspin' : 'slice'; }
 
 export function topView(host, shots, sel, onSelect, mode) {
@@ -19,7 +20,7 @@ export function topView(host, shots, sel, onSelect, mode) {
   for (const i of order) { const s = shots[i]; let x = s.land[0], y = s.land[1]; if (s.result === 'net') { x = s.net ? s.net[0] : x; y = C.NET - 0.35; }
     x = Math.max(-7.2, Math.min(7.2, x)); y = Math.min(28, y); const g = el('g', { style: 'cursor:pointer', tabindex: 0 }, svg); el('title', {}, g, `${fmtTime(s.t)} · ${resLabel(s)} · ${num(s.speed)} km/h`);
     if (i === sel) el('circle', { cx: X(x), cy: Y(y), r: 11, fill: 'none', stroke: css('--espresso'), 'stroke-width': 2 }, g);
-    const col = css(s.result === 'in' ? '--in' : '--out'), sty = s.close ? { fill: '#fff', stroke: col, 'stroke-width': 2.2 } : { fill: col, stroke: '#fff', 'stroke-width': 1.5 };
+    const col = css(s.result === 'in' ? '--in' : '--out'), sty = s.close || isEst(s) ? { fill: '#fff', stroke: col, 'stroke-width': 2.2 } : { fill: col, stroke: '#fff', 'stroke-width': 1.5 };
     if (s.result === 'in') el('circle', { cx: X(x), cy: Y(y), r: 5.5, ...sty }, g);
     else el('rect', { x: X(x) - 4.5, y: Y(y) - 4.5, width: 9, height: 9, ...sty, transform: `rotate(45 ${X(x)} ${Y(y)})` }, g);
     el('circle', { cx: X(x), cy: Y(y), r: 12, fill: 'transparent' }, g); g.addEventListener('click', () => onSelect(i)); g.addEventListener('keydown', e => { if (e.key === 'Enter') onSelect(i); }); }
