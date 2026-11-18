@@ -154,7 +154,7 @@ export class Detector {
     for (let y = 1; y < H - 1; y++) { let o = y * W + 1; for (let x = 1; x < W - 1; x++, o++) g[o] = (t[o - W - 1] + 2 * t[o - W] + t[o - W + 1] + 2 * t[o - 1] + 4 * t[o] + 2 * t[o + 1] + t[o + W - 1] + 2 * t[o + W] + t[o + W + 1]) >> 4; }
     return g; }
   // where the court lines are in this frame relative to the frame the court was marked in (a camera on a fence sways); mode 0: small step from the last position, 1: wider look around it, 2: anywhere within reach (start, after a cut, after losing it)
-  _drift(g, mode) { if (this.ref.length < 20) return; const W = this.W, H = this.H, RM = Math.round(64 * this.s), ref = this.ref;
+  _drift(g, mode) { if (this.ref.length < 20) return; const W = this.W, H = this.H, RM = Math.round(100 * this.s), ref = this.ref;
     const score = (dx, dy) => { let s = 0; for (const p of ref) { const x = (p[0] + dx) | 0, y = (p[1] + dy) | 0; if (x >= 0 && y >= 0 && x < W && y < H) s += g[y * W + x]; } return s; };
     const search = (cx, cy, r, st) => { let best = -1, bx = cx, by = cy; for (let dy = Math.max(-RM, cy - r); dy <= Math.min(RM, cy + r); dy += st) for (let dx = Math.max(-RM, cx - r); dx <= Math.min(RM, cx + r); dx += st) { const s = score(dx, dy); if (s > best) { best = s; bx = dx; by = dy; } } return [bx, by, best]; };
     const [cx0, cy0] = this.shift; let bx, by, best;
@@ -389,6 +389,9 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
         const B = r.slice(0, Math.min(5, r.length)), by = polyfit(B.map(p => ts[p[0]] - tE), B.map(p => p[2]), 1), bx = polyfit(B.map(p => ts[p[0]] - tE), B.map(p => p[1]), 1); if (!(ay[1] > 0) || !(by[1] < -20 * s)) continue; // going down before, coming up after
         const tau = (by[0] - ay[0]) / (ay[1] - by[1]); if (!(tau > -0.02) || tau > gap + 0.02) continue; const yy = ay[0] + ay[1] * tau, xx = 0.5 * (ax[0] + ax[1] * tau + bx[0] + bx[1] * tau), g = cam.ground(xx, yy); if (!g || g[1] < COURT.NET - 2 || g[1] > COURT.LEN + 8) continue;
         groundAt = { t: tE - ts[pts[0][0]] + Math.max(0, tau), g }; break; } }
+    if (mode !== 'serve') { // in a match most balls first seen high and coming down are ordinary shots caught late; a serve is the one that follows a toss: a slow, nearly vertical track ending where this one starts
+      const tS = ts[pts[0][0]]; let toss = false; for (const r of segs) { const e = r[r.length - 1], dt = tS - ts[e[0]]; if (dt < -0.05 || dt > 0.5 || r === chain[0]) continue; if (Math.hypot(e[1] - pts[0][1], e[2] - pts[0][2]) > 60 * s) continue; const dx = Math.abs(e[1] - r[0][1]), dy = Math.abs(e[2] - r[0][2]), dur = ts[e[0]] - ts[r[0][0]]; if (dy > 25 * s && dx < 0.5 * dy && dur > 0.25) { toss = true; break; } }
+      if (!toss) { meta.rej.noToss = (meta.rej.noToss || 0) + 1; continue; } }
     meta.nearServes++; if (!ground && !groundAt) { meta.rej.noBounce = (meta.rej.noBounce || 0) + 1; continue; } // a ball flying straight away from the camera can be fast and deep or slow and short and draw nearly the same line in the picture: without the bounce the serve cannot be measured honestly
     const t0 = ts[pts[0][0]], t = pts.map(p => ts[p[0]] - t0), uv = pts.map(p => [p[1], p[2]]), prior = { serve: true, y: 0.2, ySd: 0.5, z: 2.7, zSd: 0.4, clSd, ground, groundAt, rad: pts.map(p => Math.sqrt(p[3] / Math.PI)) };
     const fit = fitFlight(cam, t, uv, prior, s, true); if (!fit || fit.rms > 3) { meta.rej.rms++; continue; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 50 || speed > 260) { meta.rej.speed++; continue; }
