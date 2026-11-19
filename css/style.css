@@ -150,3 +150,6 @@ details.manual{margin:0 0 1rem}details.manual summary{cursor:pointer;color:var(-
 label.num{display:flex;flex-direction:column;gap:.25rem;font-size:.9rem;color:var(--saddle)}label.num input{font:inherit;color:var(--espresso);border:1px solid var(--tan);border-radius:8px;padding:.5rem .6rem;width:9rem;min-height:44px;background:var(--white)}
 a.btn{text-decoration:none}.trim .msg{margin:.8rem 0 0}
 @media (max-width:640px){label.num,label.num input{width:100%}.trimrow .btn{width:100%}}
+
+/* tick boxes that choose the shots for the trimmed video */
+th.pick,td.pick{width:2.4rem;text-align:center;padding-left:.4rem;padding-right:.4rem}td.pick input,th.pick input{width:1.15rem;height:1.15rem;accent-color:var(--saddle);cursor:pointer;vertical-align:middle}#trimCount{margin:0;align-self:center}
