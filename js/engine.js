@@ -141,9 +141,10 @@ export class Detector {
   constructor(W, H, cam, refPts) {
     this.W = W; this.H = H; this.cam = cam; this.s = Math.sqrt(W * H / (720 * 1280));
     this.cut = new Int32Array(W); this.tape = new Int32Array(W);
+    const apron = cam.norm([-14, -3.5, 0])[2] > 0.5 && cam.norm([14, -3.5, 0])[2] > 0.5; // only for a camera well behind the baseline: from a corner that line runs behind the camera and would blank the whole picture
     for (let x = 0; x < W; x++) { // ignore the apron in front of the near baseline (shadows, feet)
       let yb = H; const a = cam.project([-14, -3.5, 0]), b = cam.project([14, -3.5, 0]);
-      if (Math.abs(b[0] - a[0]) > 1) yb = a[1] + (x - a[0]) * (b[1] - a[1]) / (b[0] - a[0]);
+      if (apron && Math.abs(b[0] - a[0]) > 1) yb = a[1] + (x - a[0]) * (b[1] - a[1]) / (b[0] - a[0]);
       this.cut[x] = Math.max(0, Math.min(H - 2, Math.round(yb - 10 * this.s))); this.tape[x] = Math.round(cam.tapeY(x) + 20 * this.s);
     }
     this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.mt = 15; this.n = 0; this.shift = [0, 0]; this.valid = true; this.maxShift = 0; this.busy = 0; this.dropped = 0;
@@ -357,7 +358,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       if (uv[0][0] < b[0] - 1.2 * w || uv[0][0] > b[2] + 1.2 * w || uv[0][1] < b[1] - 0.5 * h || uv[0][1] > b[3]) continue; if (!feet || b[3] > feet[1]) feet = [(b[0] + b[2]) / 2, b[3]]; }
     const e = uv[uv.length - 1], d = cam.ray(e[0], e[1]), kk = (COURT.NET - cam.C[1]) / d[1], zNet = cam.C[2] + kk * d[2];
     return { t0, t, uv, fg: feet ? cam.ground(feet[0], feet[1]) : null, zNet, i1: pts[pts.length - 1][0] }; });
-  const fitOne = (o, off) => { const prior = { z: 1.3, zSd, y: o.fg ? o.fg[1] + off : null, ySd, clSd }; let t = o.t, uv = o.uv, n = t.length, fit = fitFlight(cam, t, uv, prior, s, true);
+  let ySdU = ySd; const fitOne = (o, off) => { const prior = { z: 1.3, zSd, y: o.fg ? o.fg[1] + off : null, ySd: ySdU, clSd }; let t = o.t, uv = o.uv, n = t.length, fit = fitFlight(cam, t, uv, prior, s, true);
     while (fit && n > 8 && fit.rms < 9) { const e = fit.err.slice(-3).reduce((a, b) => a + b, 0) / 3; if (e <= 3.5) break; n -= Math.max(2, Math.round(0.12 * n)); t = t.slice(0, n); uv = uv.slice(0, n); fit = fitFlight(cam, t, uv, prior, s, true); } // a track that fits nowhere near a flight is not worth trimming point by point (this loop used to be most of the waiting after the video was read)
     return fit ? { fit, t, uv, n, prior } : null; };
   // Depth self-calibration. A ball that dies in the net was exactly at the net when it was last seen, which tells how far in front of the
@@ -380,15 +381,19 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       if (!a) continue; tr.push([t, a[0][0], a[0][1]]); ext.push([t, a[0][0], a[0][1]]); tl = t; }
     if (ext.length < 4) return null; const last = ext[ext.length - 1]; let g = null; if (up.length >= 2) { g = cam.ground(last[1], last[2]); if (!g || g[1] < COURT.NET + 0.5 || g[1] > COURT.LEN + 7) g = null; }
     return { t: ext.map(p => p[0]), uv: ext.map(p => [p[1], p[2]]), g, tb: last[0] + 0.5 / fps, all: ext.length, up: up.length }; };
-  obs.forEach((o, ci) => { if (onProgress) onProgress(ci / obs.length); if (only && !only.some(q => Math.abs(q - o.t0) < 0.3)) return;
+  // First the shots that can be followed to a bounce. A seen bounce fixes the flight without any assumption about where the track starts, so these shots also show how far in front of the hitter's feet tracks really begin in this video (at 60 pictures a second the blurred ball near the camera is often missed and tracks start metres late). That offset then replaces the default for the shots without a bounce.
+  const pre = new Map(), first = new Map(); if (hasFb && mode !== 'serve') { const offs = []; obs.forEach((o, ci) => { if (onProgress) onProgress(0.4 * ci / obs.length); if (only && !only.some(q => Math.abs(q - o.t0) < 0.3)) return; const r = fitOne(o, meta.yOff); first.set(o, r); if (!r || r.n !== o.t.length || r.fit.rms > 3 || (o.zNet > 0.05 && o.zNet < 1.12)) return; const ex = followFar(o); if (!ex) return;
+      const t2 = o.t.concat(ex.t), uv2 = o.uv.concat(ex.uv), firm = ex.up >= 2, pr2 = ex.up ? { ...r.prior, y: firm ? null : r.prior.y, groundT: ex.tb, groundSd: firm ? 0.1 : 0.4 } : r.prior; /* one spot on the way back up may be something else, two in a row are a bounce */ let f2 = fitFlight(cam, t2, uv2, pr2, s, true, r.fit.x); const f3 = fitFlight(cam, t2, uv2, pr2, s, true); if (f3 && (!f2 || f3.rms < f2.rms)) f2 = f3;
+      if (f2 && f2.rms <= 2.5) { pre.set(o, { fit: f2, t: t2, uv: uv2, prior: pr2, bounce: firm }); if (firm && o.fg && f2.x[4] > 6) offs.push(f2.x[1] - o.fg[1]); } });
+    if (offs.length >= 6) { offs.sort((a, b) => a - b); const md = offs[offs.length >> 1], dev = offs.map(v => Math.abs(v - md)).sort((a, b) => a - b)[offs.length >> 1]; meta.yOffB = [md, 1.48 * dev, offs.length]; const nu = Math.max(0.6, Math.min(4.5, md)); if (Math.abs(nu - meta.yOff) > 0.15) { meta.yOff = nu; first.clear(); } ySdU = Math.max(ySd, Math.min(2.5, 1.48 * dev)); if (ySdU !== ySd) first.clear(); } }
+  obs.forEach((o, ci) => { if (onProgress) onProgress((pre.size || first.size ? 0.4 : 0) + (pre.size || first.size ? 0.6 : 1) * ci / obs.length); if (only && !only.some(q => Math.abs(q - o.t0) < 0.3)) return;
     if (mode === 'serve') { const d0 = cam.ray(o.uv[0][0], o.uv[0][1]), sc = (0 - cam.C[1]) / d0[1]; if (!(sc > 0) || cam.C[2] + sc * d0[2] < 1.5) { meta.rej.notServe = (meta.rej.notServe || 0) + 1; return; } } // serve practice: a ball that starts low over the baseline is not a serve, no need to fit it
-    const r = fitOne(o, meta.yOff); if (!r) { meta.rej.nofit++; return; }
+    const r = first.get(o) || fitOne(o, meta.yOff); if (!r) { meta.rej.nofit++; return; }
     let { fit, t, uv, n, prior } = r; const fg = o.fg, t0 = o.t0; let netHit = false;
     if (fg && n === o.t.length && o.zNet > 0.05 && o.zNet < 1.12 && fit.rms <= 3 && Math.abs(simulateAt(fit.x, [t[n - 1]])[0][1] - COURT.NET) < 2.5) { // died in the net: pin the last point to the net plane
       prior = { ...prior, anchorNet: true }; const f2 = fitFlight(cam, t, uv, prior, s, true, fit.x); if (f2 && f2.rms <= 3) { fit = f2; netHit = true; } }
     const whole = n === o.t.length; let bounce = false;
-    if (hasFb && whole && !netHit && fit.rms <= 3 && mode !== 'serve') { const ex = followFar(o); if (ex) { const t2 = o.t.concat(ex.t), uv2 = o.uv.concat(ex.uv), pr2 = ex.up ? { ...prior, groundT: ex.tb, groundSd: ex.up >= 2 ? 0.1 : 0.4 } : prior; /* one spot on the way back up may be something else, two in a row are a bounce */ let f2 = fitFlight(cam, t2, uv2, pr2, s, true, fit.x); const f3 = fitFlight(cam, t2, uv2, pr2, s, true); if (f3 && (!f2 || f3.rms < f2.rms)) f2 = f3;
-        if (f2 && f2.rms <= 2.5) { fit = f2; t = t2; uv = uv2; n = t2.length; prior = pr2; bounce = ex.up >= 2; meta.followed = (meta.followed || 0) + 1; if (bounce) meta.farBounce = (meta.farBounce || 0) + 1; } } }
+    const pf = pre.get(o); if (pf && whole && !netHit) { fit = pf.fit; t = pf.t; uv = pf.uv; n = t.length; prior = pf.prior; bounce = pf.bounce; meta.followed = (meta.followed || 0) + 1; if (bounce) meta.farBounce = (meta.farBounce || 0) + 1; }
     if (fit.rms > 3) { meta.rej.rms++; return; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 30 || speed > 230 || x[4] < 6) { meta.rej.speed++; return; }
     const sum = flightSummary(x); if (!sum.land) { meta.rej.noland++; return; }
     const flat = fitFlight(cam, t, uv, prior, s, false, x);
