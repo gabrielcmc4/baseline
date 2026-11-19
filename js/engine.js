@@ -334,7 +334,7 @@ function analyze2(frames, cam, opts = {}) { const p = opts.onProgress, a = analy
   const near = q => !q.far, far = q => q.far, na = a.filter(near).length, nb = b.filter(near).length, fa = a.length - na, fb = b.length - nb;
   const useB = nb > na * 1.15 + 1, farB = fb > fa, out = (useB ? b : a).filter(near).concat((farB ? b : a).filter(far)); out.sort((u, v) => u.t - v.t);
   out.meta = { ...(useB ? b : a).meta, colour: useB ? 'weak' : 'strict', other: useB ? na : nb, farColour: farB ? 'weak' : 'strict', incoming: (farB ? b : a).meta.incoming }; return out; }
-function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd = 1.0, clSd = 0.2, zSd = 0.7, only = null, noFar = false } = {}) {
+function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd = 1.0, clSd = 0.2, zSd = 0.7, only = null, noFar = false, dbgT = null } = {}) {
   const s = Math.sqrt(cam.W * cam.H / (720 * 1280)), H = cam.H, ts = frames.map(f => f.t);
   const dts = []; for (let i = 1; i < ts.length; i += Math.max(1, ts.length >> 12)) if (ts[i] > ts[i - 1]) dts.push(ts[i] - ts[i - 1]); dts.sort((a, b) => a - b); // the usual gap between frames (not the average: stretches of dead time are read only every 4th frame)
   const fps = dts.length ? 1 / dts[dts.length >> 1] : 30, fs = 30 / fps; // pixel-per-frame thresholds were tuned at 30 fps
@@ -417,7 +417,8 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
   // ---- serves hit from the near side. Seen from a camera a few metres up, the ball leaves the racket above the net tape in the picture and comes DOWN the picture while it flies away, so it never qualifies as an ordinary near-side shot.
   const usedS = new Set(); meta.nearServes = 0;
   if (mode !== 'coach' && !only) for (let a = 0; a < segs.length; a++) { if (usedS.has(a)) continue; const q = segs[a], x0 = q[0][1], y0 = q[0][2], e0 = q[q.length - 1];
-    if (y0 > cam.tapeY(x0) - 5 * s || e0[2] < y0 + 20 * s) continue; const chain = [q], idx = [a];
+    if (dbgT != null && ts[q[0][0]] >= dbgT && q.length >= 10 && (y0 > cam.tapeY(x0) - 5 * s || e0[2] < y0 + 20 * s)) { const dur = ts[e0[0]] - ts[q[0][0]], sp = Math.hypot(e0[1] - x0, e0[2] - y0) / Math.max(0.01, dur); if (sp > 250 * s && (meta.dbgF = meta.dbgF || []).length < 70) meta.dbgF.push([+ts[q[0][0]].toFixed(2), q.length, Math.round(x0), Math.round(y0), Math.round(e0[1]), Math.round(e0[2]), Math.round(cam.tapeY(x0)), Math.round(sp)]); }
+    if (y0 > cam.tapeY(x0) - 5 * s || e0[2] < y0 + 20 * s) continue; const chain = [q], idx = [a]; const dd = { t: +ts[q[0][0]].toFixed(2), st: 'chain' }; if (dbgT != null && dd.t >= dbgT && (meta.dbgS = meta.dbgS || []).length < 70) meta.dbgS.push(dd);
     for (let b = a + 1; b < segs.length; b++) { if (usedS.has(b)) continue; const r = segs[b], last = chain[chain.length - 1], gap = r[0][0] - last[last.length - 1][0]; if (gap > 6 / fs) break; if (gap < -1) continue;
       const k = Math.min(last.length, 6), sg = last.slice(-k), f = sg.map(p => p[0] - r[0][0]), px = polyval(polyfit(f, sg.map(p => p[1]), 1), 0), py = polyval(polyfit(f, sg.map(p => p[2]), k >= 4 ? 2 : 1), 0);
       if (Math.hypot(px - r[0][1], py - r[0][2]) < (15 + 3 * gap) * s && r[r.length - 1][2] > r[0][2]) { chain.push(r); idx.push(b); } }
@@ -426,8 +427,10 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     { const st = []; for (let i = 1; i < pts.length; i++) st.push(Math.hypot(pts[i][1] - pts[i - 1][1], pts[i][2] - pts[i - 1][2]) / Math.max(1, pts[i][0] - pts[i - 1][0])); let cut = 0;
       for (let i = 1; i < Math.min(st.length - 5, 30); i++) { const before = Math.max(st[i - 1], i > 1 ? st[i - 2] : 0, 1.5 * s * fs); if (st[i] > 2.5 * before && st[i + 1] > 0.5 * st[i]) cut = i; }
       if (cut) pts.splice(0, cut); if (pts.length < 6) continue; }
+    dd.st = 'gpe'; dd.n = pts.length; dd.a = pts[0].slice(1, 3).map(Math.round); dd.e = pts[pts.length - 1].slice(1, 3).map(Math.round);
     const end = pts[pts.length - 1], gpe = cam.ground(end[1], end[2]); if (!gpe || gpe[1] < COURT.NET - 1 || gpe[1] > COURT.LEN + 12) continue; // last seen on the near side of the net: not a serve going away
-    const d0 = cam.ray(pts[0][1], pts[0][2]), sc0 = (0 - cam.C[1]) / d0[1], zB = cam.C[2] + sc0 * d0[2]; if (!(sc0 > 0) || zB < 1.6 || zB > 3.6) continue; // over the baseline it must be at a height a racket can reach
+    dd.st = 'zB'; dd.g = gpe.map(v => +v.toFixed(1));
+    const d0 = cam.ray(pts[0][1], pts[0][2]), sc0 = (0 - cam.C[1]) / d0[1], zB = cam.C[2] + sc0 * d0[2]; dd.zB = +zB.toFixed(1); dd.xB = +(cam.C[0] + sc0 * d0[0]).toFixed(1); if (!(sc0 > 0) || zB < 1.6 || zB > 3.6) continue; dd.st = 'bounce'; // over the baseline it must be at a height a racket can reach
     let ground = null, groundAt = null; for (const r of segs) { const g0 = r[0][0] - end[0]; if (g0 < 0 || g0 > 3 || r === chain[chain.length - 1]) continue; if (Math.hypot(r[0][1] - end[1], r[0][2] - end[2]) < 14 * s && r.length >= 4 && r[Math.min(3, r.length - 1)][2] < r[0][2] - 2 * s) { ground = gpe; break; } }
     if (!ground) { // the ball is often lost just before it lands (bright court, small ball) and found again coming up off the ground: where the two paths meet is the bounce
       const k = Math.min(5, pts.length), A = pts.slice(-k), tE = ts[end[0]], ax = polyfit(A.map(p => ts[p[0]] - tE), A.map(p => p[1]), 1), ay = polyfit(A.map(p => ts[p[0]] - tE), A.map(p => p[2]), 1);
@@ -438,13 +441,15 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     if (mode !== 'serve') { // in a match most balls first seen high and coming down are ordinary shots caught late; a serve is the one that follows a toss: a slow, nearly vertical track ending where this one starts
       const toss = hasToss(ts[pts[0][0]], pts[0][1], pts[0][2], chain[0]); // often only the last bit of the toss, falling into the hit, is seen
       if (!toss) { meta.rej.noToss = (meta.rej.noToss || 0) + 1; continue; } }
+    dd.st = 'fit'; dd.b = ground ? 'g' : groundAt ? 'gAt' : '-';
     meta.nearServes++; const blind = !ground && !groundAt; if (blind && mode === 'serve') { meta.rej.noBounce = (meta.rej.noBounce || 0) + 1; continue; } // a ball flying straight away from the camera can be fast and deep or slow and short and draw nearly the same line in the picture: without the bounce the serve cannot be measured honestly
     const t0 = ts[pts[0][0]], t = pts.map(p => ts[p[0]] - t0), uv = pts.map(p => [p[1], p[2]]), prior = { serve: true, y: 0.2, ySd: 0.5, z: 2.7, zSd: 0.4, clSd, ground, groundAt, rad: pts.map(p => Math.sqrt(p[3] / Math.PI)) };
-    const fit = fitFlight(cam, t, uv, prior, s, true); if (!fit || fit.rms > 3) { meta.rej.rms++; continue; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 50 || speed > 260 || (mode !== 'serve' && (speed > 215 || pts.length < 10))) { meta.rej.speed++; continue; } // in a match a handful of points at a record-breaking speed is something else that was moving
+    const fit = fitFlight(cam, t, uv, prior, s, true); if (fit) { dd.rms = +fit.rms.toFixed(1); dd.x = fit.x.map(v => +v.toFixed(1)); dd.st = 'rms'; } if (!fit || fit.rms > 3) { meta.rej.rms++; continue; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; dd.st = 'speed'; if (speed < 50 || speed > 260 || (mode !== 'serve' && (speed > 215 || pts.length < 10))) { meta.rej.speed++; continue; } // in a match a handful of points at a record-breaking speed is something else that was moving
     const sum = flightSummary(x); if (!sum.land) { meta.rej.noland++; continue; }
     // From a low camera the far service box lies behind the net band, so the bounce of a serve is hidden. After a seen toss, a clean track followed until just before the landing still fixes the serve well enough; it is marked as an estimate.
     const sd = covariance(fit, y => { const w = flightSummary(y); return [w.land ? w.land[0] : 0, w.land ? w.land[1] : 0, w.net ? w.net[2] : 0, y[6]]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9]; if (sd[1] > (ground || groundAt ? 3 : 2.5)) { meta.rej.depth++; continue; }
     if (blind && !(fit.rms <= 1.5 && pts.length >= 15 && sd[1] <= 1.5 && sum.tLand - t[t.length - 1] < 0.25)) { meta.rej.noBounce = (meta.rej.noBounce || 0) + 1; continue; } if (blind) meta.approx = (meta.approx || 0) + 1;
+    dd.st = 'ok'; dd.land = sum.land.map(v => +v.toFixed(1));
     const C = COURT, [lx, ly] = sum.land, left = x[0] > 0, target = left ? 'left' : 'right'; let result;
     if (!sum.net || sum.clear < 0) result = 'net'; else { const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
     let close = false; if (result !== 'net') { const xs = left ? [-C.S, 0] : [0, C.S]; close = Math.abs(ly - (C.LEN - C.SV)) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
