@@ -404,7 +404,8 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     const r = first.get(o) || fitOne(o, meta.yOff); if (!r) { meta.rej.nofit++; return; }
     let { fit, t, uv, n, prior } = r; const fg = o.fg, t0 = o.t0; let netHit = false;
     const brk = n === o.t.length ? afterEnd(o) : null; if (brk) meta['net' + brk] = (meta['net' + brk] || 0) + 1;
-    if (fg && n === o.t.length && brk !== 'pass' && o.zNet > 0.05 && o.zNet < 1.12 && fit.rms <= 3 && Math.abs(simulateAt(fit.x, [t[n - 1]])[0][1] - COURT.NET) < 2.5) { // died in the net: pin the last point to the net plane
+    const endY = simulateAt(fit.x, [t[n - 1]])[0][1];
+    if (fg && n === o.t.length && brk !== 'pass' && o.zNet > 0.05 && o.zNet < 1.12 && fit.rms <= 3 && Math.abs(endY - COURT.NET) < 2.5) { // died in the net: pin the last point to the net plane
       prior = { ...prior, anchorNet: true }; const f2 = fitFlight(cam, t, uv, prior, s, true, fit.x); if (f2 && f2.rms <= 3) { fit = f2; netHit = true; } }
     const whole = n === o.t.length; let bounce = false;
     const pf = pre.get(o); if (pf && whole && !netHit) { fit = pf.fit; t = pf.t; uv = pf.uv; n = t.length; prior = pf.prior; bounce = pf.bounce; meta.followed = (meta.followed || 0) + 1; if (bounce) meta.farBounce = (meta.farBounce || 0) + 1; }
@@ -424,7 +425,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     let close = false; if (result !== 'net') { const yLim = (mode === 'serve' || serve) ? C.LEN - C.SV : C.LEN, xs = target ? (target === 'left' ? [-C.S, 0] : [0, C.S]) : [-C.S, C.S];
       close = Math.abs(ly - yLim) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
     const rpm = spinFromCl(x[6], v0), rpmHi = spinFromCl(x[6] + sd[3], v0), rpmLo = spinFromCl(x[6] - sd[3], v0);
-    shots.push({ t: t0, who: 'me', far: false, approx, bounce, netSeen: result === 'net' && brk === 'fall', speedSd: sd[4], n, nTotal: o.t.length, rms: fit.rms, rmsFlat: flat ? flat.rms : null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
+    shots.push({ t: t0, who: 'me', far: false, approx, bounce, netSeen: result === 'net' && brk === 'fall', brk, endY, zNetEnd: o.zNet, speedSd: sd[4], n, nTotal: o.t.length, rms: fit.rms, rmsFlat: flat ? flat.rms : null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
       land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit, netZ: netHit ? o.zNet : null, serve, target, feetY: fg ? fg[1] : null,
       path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv });
   });
