@@ -368,7 +368,15 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
   // Depth self-calibration. A ball that dies in the net was exactly at the net when it was last seen, which tells how far in front of the
   // hitter's feet the tracked flight really starts. Without enough net balls the default offset is used.
   const meta = { yOff, netRefs: 0, candidates: cands.length, fps, segments: segs.length, rej: { nofit: 0, rms: 0, speed: 0, noland: 0, depth: 0 } };
-  if (!only) { const refs = obs.filter(o => o.fg && o.t.length >= 8 && o.zNet > 0.05 && o.zNet < 1.12).slice(0, 40);
+  // What the ball did right after the last point of a track. A ball stopped by the net breaks its path: it drops nearly straight down ('fall'). A ball that got over carries on along its path, or comes back within a second because somebody hit it ('pass'). Often neither is seen.
+  const afterEnd = o => { const m = o.t.length, e = o.uv[m - 1], tE = ts[o.i1], k = Math.min(5, m - 1), ux = e[0] - o.uv[m - 1 - k][0], uy = e[1] - o.uv[m - 1 - k][1], un = Math.hypot(ux, uy) || 1, vIn = un / Math.max(0.01, o.t[m - 1] - o.t[m - 1 - k]);
+    for (const r of segs) { const a = r[0], b = r[r.length - 1], dt = ts[a[0]] - tE; if (dt < 0.005 || r.length < 4) continue; if (dt > 1) { if (dt > 2) break; continue; } const du = b[1] - a[1], dv = b[2] - a[2], dur = Math.max(0.01, ts[b[0]] - ts[a[0]]), sp = Math.hypot(du, dv) / dur;
+      if (r.length >= 6 && dt > 0.03 && a[2] < cam.tapeY(a[1]) + 10 * s && dv >= 40 * s && Math.abs(a[1] - e[0]) < 250 * s) return 'pass'; // a ball coming back from the far side
+      if (dt <= 0.25 && Math.hypot(a[1] - e[0], a[2] - e[1]) <= (25 + 0.6 * vIn * dt / s) * s && sp >= 0.5 * vIn && (du * ux + dv * uy) / (un * Math.hypot(du, dv) || 1) > 0.8) return 'pass'; }
+    const col = []; for (let i = o.i1 + 1; i < frames.length && ts[i] - tE <= 0.5; i++) { const f = frames[i]; let best = null; for (const L of [f.c, f.c2]) if (L) for (const q of L) if (Math.abs(q[0] - e[0]) <= 12 * s && q[1] > e[1] + 1 && q[1] < e[1] + 60 * s && (!best || q[1] < best)) best = q[1]; if (best != null) col.push(best); }
+    if (col.length >= 3) { let upN = 0; for (let i = 1; i < col.length; i++) if (col[i] >= col[i - 1] - 1) upN++; if (col[col.length - 1] - col[0] >= 5 * s && upN >= 0.7 * (col.length - 1)) return 'fall'; }
+    return null; };
+  if (!only) { const refs = obs.filter(o => o.fg && o.t.length >= 8 && o.zNet > 0.05 && o.zNet < 1.12 && afterEnd(o) !== 'pass').slice(0, 40); // balls that came back did not die in the net and must not set the depth scale
     const endY = off => { const ys = []; for (const o of refs) { const r = fitOne(o, off); if (!r || r.n < o.t.length || r.fit.rms > 3) continue; const y = simulateAt(r.fit.x, [r.t[r.n - 1]])[0][1]; if (Math.abs(y - COURT.NET) < 3.5) ys.push(y); } ys.sort((a, b) => a - b); return ys.length >= 4 ? [ys[ys.length >> 1], ys.length] : null; };
     if (refs.length >= 4) { const a = endY(yOff); if (a) { const b = endY(yOff + 0.8); let off = yOff; if (b && Math.abs(b[0] - a[0]) > 0.05) off = yOff + 0.8 * (COURT.NET - 0.1 - a[0]) / (b[0] - a[0]); meta.yOff = Math.max(0.6, Math.min(2.2, off)); meta.netRefs = a[1]; } } }
   const shots = [];
@@ -394,7 +402,8 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     if (mode === 'serve') { const d0 = cam.ray(o.uv[0][0], o.uv[0][1]), sc = (0 - cam.C[1]) / d0[1]; if (!(sc > 0) || cam.C[2] + sc * d0[2] < 1.5) { meta.rej.notServe = (meta.rej.notServe || 0) + 1; return; } } // serve practice: a ball that starts low over the baseline is not a serve, no need to fit it
     const r = first.get(o) || fitOne(o, meta.yOff); if (!r) { meta.rej.nofit++; return; }
     let { fit, t, uv, n, prior } = r; const fg = o.fg, t0 = o.t0; let netHit = false;
-    if (fg && n === o.t.length && o.zNet > 0.05 && o.zNet < 1.12 && fit.rms <= 3 && Math.abs(simulateAt(fit.x, [t[n - 1]])[0][1] - COURT.NET) < 2.5) { // died in the net: pin the last point to the net plane
+    const brk = n === o.t.length ? afterEnd(o) : null; if (brk) meta['net' + brk] = (meta['net' + brk] || 0) + 1;
+    if (fg && n === o.t.length && brk !== 'pass' && o.zNet > 0.05 && o.zNet < 1.12 && fit.rms <= 3 && Math.abs(simulateAt(fit.x, [t[n - 1]])[0][1] - COURT.NET) < 2.5) { // died in the net: pin the last point to the net plane
       prior = { ...prior, anchorNet: true }; const f2 = fitFlight(cam, t, uv, prior, s, true, fit.x); if (f2 && f2.rms <= 3) { fit = f2; netHit = true; } }
     const whole = n === o.t.length; let bounce = false;
     const pf = pre.get(o); if (pf && whole && !netHit) { fit = pf.fit; t = pf.t; uv = pf.uv; n = t.length; prior = pf.prior; bounce = pf.bounce; meta.followed = (meta.followed || 0) + 1; if (bounce) meta.farBounce = (meta.farBounce || 0) + 1; }
@@ -406,14 +415,15 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     const approx = sd[1] > 3; if (approx) meta.approx = (meta.approx || 0) + 1; if (approx && !(mode !== 'serve' && sd[1] <= 5 && fit.rms <= 1.5 && n >= 12 && whole && sd[2] <= 0.5 && sd[4] <= 0.25 * speed && speed <= 150 && sum.net && sum.clear > 0)) { meta.rej.depth++; return; } // depth and speed go together: an estimate that is also very fast or very loose is not worth showing if (approx) meta.approx = (meta.approx || 0) + 1;
     const C = COURT, [lx, ly] = sum.land, serve = x[2] > 2.0 && x[1] < 1.5 && (mode === 'serve' || (x[2] > 2.2 && x[5] < 2.5 && !approx && hasToss(t0, o.uv[0][0], o.uv[0][1], null))); let result, target = null; // outside serve practice a serve is a high, flat start that follows a toss; anything else is a rally ball
     if (mode === 'serve' && !serve) { meta.rej.notServe = (meta.rej.notServe || 0) + 1; return; } // serve practice: a ball bounced on the ground or rolled back is not a serve
-    if (netHit || !sum.net || sum.clear < 0) result = 'net';
+    if (!netHit && !sum.net) { meta.rej.short = (meta.rej.short || 0) + 1; return; } // a flight that comes down on the hitter's own side with no sign of the net is nearly always something else that moved (a ball bounced at the feet, a ball rolling)
+    if (netHit || (sum.clear < 0 && brk !== 'pass')) result = 'net';
     else if (mode === 'serve' || serve) { const left = x[0] > 0; target = left ? 'left' : 'right';
       const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
     else result = (Math.abs(lx) <= C.S && ly <= C.LEN) ? 'in' : (ly > C.LEN ? 'long' : 'wide');
     let close = false; if (result !== 'net') { const yLim = (mode === 'serve' || serve) ? C.LEN - C.SV : C.LEN, xs = target ? (target === 'left' ? [-C.S, 0] : [0, C.S]) : [-C.S, C.S];
       close = Math.abs(ly - yLim) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
     const rpm = spinFromCl(x[6], v0), rpmHi = spinFromCl(x[6] + sd[3], v0), rpmLo = spinFromCl(x[6] - sd[3], v0);
-    shots.push({ t: t0, who: 'me', far: false, approx, bounce, speedSd: sd[4], n, nTotal: o.t.length, rms: fit.rms, rmsFlat: flat ? flat.rms : null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
+    shots.push({ t: t0, who: 'me', far: false, approx, bounce, netSeen: result === 'net' && brk === 'fall', speedSd: sd[4], n, nTotal: o.t.length, rms: fit.rms, rmsFlat: flat ? flat.rms : null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
       land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit, netZ: netHit ? o.zNet : null, serve, target, feetY: fg ? fg[1] : null,
       path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv });
   });
