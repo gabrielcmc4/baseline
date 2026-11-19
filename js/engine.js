@@ -352,6 +352,8 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     const endY = off => { const ys = []; for (const o of refs) { const r = fitOne(o, off); if (!r || r.n < o.t.length || r.fit.rms > 3) continue; const y = simulateAt(r.fit.x, [r.t[r.n - 1]])[0][1]; if (Math.abs(y - COURT.NET) < 3.5) ys.push(y); } ys.sort((a, b) => a - b); return ys.length >= 4 ? [ys[ys.length >> 1], ys.length] : null; };
     if (refs.length >= 4) { const a = endY(yOff); if (a) { const b = endY(yOff + 0.8); let off = yOff; if (b && Math.abs(b[0] - a[0]) > 0.05) off = yOff + 0.8 * (COURT.NET - 0.1 - a[0]) / (b[0] - a[0]); meta.yOff = Math.max(0.6, Math.min(2.2, off)); meta.netRefs = a[1]; } } }
   const shots = [];
+  // a toss: a slow, nearly vertical track ending where and when the serve starts (often only its last bit, falling into the hit, is seen)
+  const hasToss = (tS, u0, v0, skip) => { for (const r of segs) { const e = r[r.length - 1], dt = tS - ts[e[0]]; if (dt < -0.05 || dt > 0.5 || r === skip) continue; if (Math.hypot(e[1] - u0, e[2] - v0) > 100 * s) continue; const dx = Math.abs(e[1] - r[0][1]), dy = Math.abs(e[2] - r[0][2]), dur = ts[e[0]] - ts[r[0][0]]; if (dy > 25 * s && dx < 0.6 * dy && dur >= 0.12) return true; } return false; };
   obs.forEach((o, ci) => { if (onProgress) onProgress(ci / obs.length); if (only && !only.some(q => Math.abs(q - o.t0) < 0.3)) return;
     if (mode === 'serve') { const d0 = cam.ray(o.uv[0][0], o.uv[0][1]), sc = (0 - cam.C[1]) / d0[1]; if (!(sc > 0) || cam.C[2] + sc * d0[2] < 1.5) { meta.rej.notServe = (meta.rej.notServe || 0) + 1; return; } } // serve practice: a ball that starts low over the baseline is not a serve, no need to fit it
     const r = fitOne(o, meta.yOff); if (!r) { meta.rej.nofit++; return; }
@@ -361,10 +363,10 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     if (fit.rms > 3) { meta.rej.rms++; return; } const x = fit.x, v0 = Math.hypot(x[3], x[4], x[5]), speed = v0 * 3.6; if (speed < 30 || speed > 230 || x[4] < 6) { meta.rej.speed++; return; }
     const sum = flightSummary(x); if (!sum.land) { meta.rej.noland++; return; }
     const flat = fitFlight(cam, t, uv, prior, s, false, x);
-    const sd = covariance(fit, y => { const q = flightSummary(y); return [q.land ? q.land[0] : 0, q.land ? q.land[1] : 0, q.net ? q.net[2] : 0, y[6]]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9];
+    const sd = covariance(fit, y => { const q = flightSummary(y); return [q.land ? q.land[0] : 0, q.land ? q.land[1] : 0, q.net ? q.net[2] : 0, y[6], 3.6 * Math.hypot(y[3], y[4], y[5])]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9, 99];
     // The ball is often lost near the top of its path (far away it is two pixels wide and nearly still in the picture). Speed, direction and height over the net are then well measured but how deep it lands is not: a clean, long enough track is kept and marked as an estimate rather than thrown away.
-    const approx = sd[1] > 3; if (approx && !(mode !== 'serve' && sd[1] <= 5 && fit.rms <= 1.5 && n >= 12 && n === o.t.length && sd[2] <= 0.5 && sum.net && sum.clear > 0)) { meta.rej.depth++; return; } if (approx) meta.approx = (meta.approx || 0) + 1;
-    const C = COURT, [lx, ly] = sum.land, serve = x[2] > 2.0 && x[1] < 1.5 && (mode === 'serve' || (x[2] > 2.2 && x[5] < 2.5)); let result, target = null; // outside serve practice a high ball still going up fast is a rally ball taken at shoulder height, not a serve
+    const approx = sd[1] > 3; if (approx && !(mode !== 'serve' && sd[1] <= 5 && fit.rms <= 1.5 && n >= 12 && n === o.t.length && sd[2] <= 0.5 && sd[4] <= 0.25 * speed && speed <= 150 && sum.net && sum.clear > 0)) { meta.rej.depth++; return; } // depth and speed go together: an estimate that is also very fast or very loose is not worth showing if (approx) meta.approx = (meta.approx || 0) + 1;
+    const C = COURT, [lx, ly] = sum.land, serve = x[2] > 2.0 && x[1] < 1.5 && (mode === 'serve' || (x[2] > 2.2 && x[5] < 2.5 && !approx && hasToss(t0, o.uv[0][0], o.uv[0][1], null))); let result, target = null; // outside serve practice a serve is a high, flat start that follows a toss; anything else is a rally ball
     if (mode === 'serve' && !serve) { meta.rej.notServe = (meta.rej.notServe || 0) + 1; return; } // serve practice: a ball bounced on the ground or rolled back is not a serve
     if (netHit || !sum.net || sum.clear < 0) result = 'net';
     else if (mode === 'serve' || (mode === 'match' && serve)) { const left = x[0] > 0; target = left ? 'left' : 'right';
@@ -373,7 +375,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     let close = false; if (result !== 'net') { const yLim = (mode === 'serve' || (mode === 'match' && serve)) ? C.LEN - C.SV : C.LEN, xs = target ? (target === 'left' ? [-C.S, 0] : [0, C.S]) : [-C.S, C.S];
       close = Math.abs(ly - yLim) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
     const rpm = spinFromCl(x[6], v0), rpmHi = spinFromCl(x[6] + sd[3], v0), rpmLo = spinFromCl(x[6] - sd[3], v0);
-    shots.push({ t: t0, who: 'me', far: false, approx, n, nTotal: o.t.length, rms: fit.rms, rmsFlat: flat ? flat.rms : null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
+    shots.push({ t: t0, who: 'me', far: false, approx, speedSd: sd[4], n, nTotal: o.t.length, rms: fit.rms, rmsFlat: flat ? flat.rms : null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
       land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit, netZ: netHit ? o.zNet : null, serve, target, feetY: fg ? fg[1] : null,
       path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv });
   });
@@ -400,7 +402,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
         const tau = (by[0] - ay[0]) / (ay[1] - by[1]); if (!(tau > -0.02) || tau > gap + 0.02) continue; const yy = ay[0] + ay[1] * tau, xx = 0.5 * (ax[0] + ax[1] * tau + bx[0] + bx[1] * tau), g = cam.ground(xx, yy); if (!g || g[1] < COURT.NET - 2 || g[1] > COURT.LEN + 8) continue;
         groundAt = { t: tE - ts[pts[0][0]] + Math.max(0, tau), g }; break; } }
     if (mode !== 'serve') { // in a match most balls first seen high and coming down are ordinary shots caught late; a serve is the one that follows a toss: a slow, nearly vertical track ending where this one starts
-      const tS = ts[pts[0][0]]; let toss = false; for (const r of segs) { const e = r[r.length - 1], dt = tS - ts[e[0]]; if (dt < -0.05 || dt > 0.5 || r === chain[0]) continue; if (Math.hypot(e[1] - pts[0][1], e[2] - pts[0][2]) > 100 * s) continue; const dx = Math.abs(e[1] - r[0][1]), dy = Math.abs(e[2] - r[0][2]), dur = ts[e[0]] - ts[r[0][0]]; if (dy > 25 * s && dx < 0.6 * dy && dur >= 0.12) { toss = true; break; } } // often only the last bit of the toss, falling into the hit, is seen
+      const toss = hasToss(ts[pts[0][0]], pts[0][1], pts[0][2], chain[0]); // often only the last bit of the toss, falling into the hit, is seen
       if (!toss) { meta.rej.noToss = (meta.rej.noToss || 0) + 1; continue; } }
     meta.nearServes++; const blind = !ground && !groundAt; if (blind && mode === 'serve') { meta.rej.noBounce = (meta.rej.noBounce || 0) + 1; continue; } // a ball flying straight away from the camera can be fast and deep or slow and short and draw nearly the same line in the picture: without the bounce the serve cannot be measured honestly
     const t0 = ts[pts[0][0]], t = pts.map(p => ts[p[0]] - t0), uv = pts.map(p => [p[1], p[2]]), prior = { serve: true, y: 0.2, ySd: 0.5, z: 2.7, zSd: 0.4, clSd, ground, groundAt, rad: pts.map(p => Math.sqrt(p[3] / Math.PI)) };
