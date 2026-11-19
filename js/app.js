@@ -31,12 +31,13 @@ async function autoFind() { const token = S.autoToken = {}, msg = $('calMsg'); m
   const seen = [];
   for (const pos of [80, 300, 550, 800]) { let img; crumb('grab ' + pos); try { img = await grabFrame(S.info, S.info.duration * pos / 1000); } catch (e) { crumb('grab failed'); continue; } seen.push(img); crumb('court search'); const r = await courtWorker(img); crumb('court ' + (r ? r.n : 'none')); if (S.autoToken !== token) return;
     if (r && (!best || r.n > best.r.n)) best = { r, img, pos }; if (best && best.r.n >= 6) break; }
-  if (best) { if (seen.length < 3) for (const pos of [550, 800]) { try { seen.push(await grabFrame(S.info, S.info.duration * pos / 1000)); } catch (e) {} } // lines hidden in one frame are often visible in another
-    for (const img of seen) { if (img === best.img) continue; const r = await courtWorker(img, best.r); if (S.autoToken !== token) return; if (r && r.n > best.r.n) best.r = r; } }
+  if (best) { for (const pos of [80, 300, 550, 800].slice(seen.length)) { try { seen.push(await grabFrame(S.info, S.info.duration * pos / 1000)); } catch (e) {} } // lines hidden in one frame are often visible in another
+    let other = 0, off = 0; for (const img of seen) { if (img === best.img) continue; const r = await courtWorker(img, best.r); if (S.autoToken !== token) return; if (r) { other++; if (r.support < 0.75) off++; } if (r && r.n > best.r.n) best.r = { ...r, support: undefined }; }
+    best.moved = other >= 2 && off >= 2; crumb('court seen elsewhere ' + (other - off) + '/' + other); } // the court must be in the same place at other moments of the video; if it is not, the camera moves or the video joins different views
   if (S.autoToken !== token) return; crumb('auto done'); S.autoToken = null; window.__baselineAuto = best ? best.r.n : 0;
   if (!best) { msg.textContent = t('autoNone'); msg.classList.add('bad'); $('manual').open = true; S.img = await grabFrame(S.info, S.info.duration * $('seek').value / 1000); drawFrame(); return; }
   S.img = best.img; $('seek').value = best.pos; S.raw = best.r.raw; S.lines = best.r.lines; S.pending = []; S.active = null; S.cal = { cam: new Camera(best.r.camP, S.info.W, S.info.H), rms: best.r.rms, perLine: best.r.perLine };
-  msg.textContent = t('autoFound', { n: best.r.n }) + ' ' + t('camInfo', { h: num(S.cal.cam.C[2], 1), d: num(-S.cal.cam.C[1], 1) }); msg.classList.add('good'); $('manual').open = false; $('go').disabled = false; drawFrame(); drawMini(); }
+  msg.textContent = t('autoFound', { n: best.r.n }) + ' ' + t('camInfo', { h: num(S.cal.cam.C[2], 1), d: num(-S.cal.cam.C[1], 1) }); msg.classList.add('good'); if (best.moved) { msg.textContent += ' ' + t('autoMoved'); msg.className = 'msg bad'; } window.__baselineMoved = !!best.moved; $('manual').open = false; $('go').disabled = false; drawFrame(); drawMini(); }
 // ---- step 2: court marking
 const cv = $('frame'), cx = cv.getContext('2d');
 async function loadFrame() { S.img = await grabFrame(S.info, S.info.duration * $('seek').value / 1000); cv.width = S.info.W; cv.height = S.info.H; for (const id in S.raw) S.lines[id] = refineLine(S.img, S.raw[id][0], S.raw[id][1], 1.6 * scale()); drawFrame(); drawMini(); }
