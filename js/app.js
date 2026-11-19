@@ -107,7 +107,7 @@ async function run() { crumb('run mode ' + S.mode); step(3); $('bar').style.widt
       r = await decodeAll(S.file, S.info, (im, tm) => { const f = det.push(im.data, tm); if (f) frames.push(f); if (++k % 20 === 0) ring(im.data, f ? f.c : []); }, onP, S.abort.signal); }
     crumb('fitting, fast ' + r.fast + ' frames ' + frames.length); $('stage').textContent = t('fitting'); $('eta').textContent = '';
     S.frames = frames; S.framesKey = key; S.shots = await fit(bar);
-    window.__baseline = { shots: S.shots, frames: frames.length, seconds: (performance.now() - start) / 1000, fast: r.fast };
+    window.__baseline = { shots: S.shots, meta: S.meta, frames: frames.length, seconds: (performance.now() - start) / 1000, fast: r.fast };
     crumb('shots ' + S.shots.length); S.sel = null; S.view = 'me'; S.saved = false; S.fromHistory = false; S.sid = sessionId(S.file); $('sdate').value = fileDate(S.file); step(4); renderReport(); if (currentUser() && !window.__baselineNoSave) save();
   } catch (e) { if (e.message === 'aborted') return; console.error(e); crumb('error ' + e.message); step(2); const m = $('calMsg'); m.className = 'msg bad'; m.textContent = t('errAnalyze', { e: e.message || '?' }); }
 }
