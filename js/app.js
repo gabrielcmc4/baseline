@@ -71,7 +71,9 @@ $('check').onclick = () => { const msg = $('calMsg'); msg.className = 'msg'; con
 // ---- step 3: analysis
 $('go').onclick = run; $('cancel').onclick = () => { S.abort?.abort(); step(2); };
 // the flight fitting on its own: reused when the viewer changes the kind of session after the video has been read
-function fit(bar) { const cam = S.cal.cam, { W, H } = S.info; return new Promise((res, rej) => { const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); w.onmessage = e => { if (e.data.progress != null && bar) bar.style.width = (90 + e.data.progress * 10).toFixed(1) + '%'; if (e.data.shots) { w.terminate(); S.meta = e.data.meta; res(e.data.shots); } if (e.data.error) { w.terminate(); rej(new Error(e.data.error)); } }; w.onerror = e => rej(new Error(e.message)); if (S.abort) S.abort.signal.addEventListener('abort', () => { w.terminate(); rej(new Error('aborted')); });
+// The calculation code is fetched when the worker starts. After a long read the browser may ask the network for it again, and a moment without connection would then throw away everything read so far: try a few times before giving up.
+async function fit(bar) { for (let k = 0; ; k++) { try { return await fitOnce(bar); } catch (e) { if (e.message !== 'load' || k >= 5) throw e.message === 'load' ? new Error(t('errLoad')) : e; crumb('fit worker did not load, try ' + (k + 1)); await new Promise(r => setTimeout(r, 2000 + 2000 * k)); if (S.abort?.signal.aborted) throw new Error('aborted'); } } }
+function fitOnce(bar) { const cam = S.cal.cam, { W, H } = S.info; return new Promise((res, rej) => { const w = new Worker(new URL('./worker.js', import.meta.url), { type: 'module' }); w.onmessage = e => { if (e.data.progress != null && bar) bar.style.width = (90 + e.data.progress * 10).toFixed(1) + '%'; if (e.data.shots) { w.terminate(); S.meta = e.data.meta; res(e.data.shots); } if (e.data.error) { w.terminate(); rej(new Error(e.data.error)); } }; w.onerror = e => { w.terminate(); rej(new Error(e.message || 'load')); }; if (S.abort) S.abort.signal.addEventListener('abort', () => { w.terminate(); rej(new Error('aborted')); });
     w.postMessage({ frames: S.frames, camP: cam.p, W, H, mode: S.farMe && S.mode === 'coach' ? 'match' : S.mode, noFar: !!window.__baselineNoFar }); }).then(shots => { if (S.farMe && S.mode !== 'serve') for (const q of shots) q.who = q.who === 'opp' ? 'me' : 'opp'; return shots; }); } // the player filmed from behind is not always the user: with "I'm on the far side" the two roles are swapped
 async function changeMode(m, force) { if (!S.frames || (m === S.mode && !force)) return; const sel = $('modeSel'); sel.disabled = true; $('modeMsg').textContent = t('fitting'); const old = S.mode; S.mode = m;
   try { S.shots = await fit(null); crumb('mode ' + m + ' shots ' + S.shots.length); S.sel = null; S.view = 'me'; S.saved = false; window.__baseline = { ...(window.__baseline || {}), shots: S.shots }; renderReport(); if (currentUser()) save(); } catch (e) { console.error(e); S.mode = old; sel.value = old; }
@@ -82,8 +84,9 @@ async function run() { crumb('run mode ' + S.mode); step(3); $('bar').style.widt
   crumb('decode start');
   const onP = p => { if (Math.floor(p * 20) > Math.floor(lastP * 20)) crumb('decode ' + Math.round(p * 100) + '%'); if (p - lastP > 0.002 || p >= 1) { lastP = p; bar.style.width = (p * 90).toFixed(1) + '%'; const el = (performance.now() - start) / 1000; if (p > 0.02) $('eta').textContent = '~' + fmtTime(el / p * (1 - p)) + ' min'; if (S.slow) $('eta').textContent = t('slowPath') + ' ' + $('eta').textContent; } };
   const ring = (data, balls) => { px.putImageData(new ImageData(new Uint8ClampedArray(data), W, H), 0, 0); px.strokeStyle = '#cbe33a'; px.lineWidth = 3; for (const c of balls) { px.beginPath(); px.arc(c[0], c[1], 14, 0, 7); px.stroke(); } };
-  try { let r = null, frames = null;
-    if (!S.slow && !window.__baselineNoScanWorker) try { // normal path: everything heavy happens in a worker
+  try { let r = null, frames = null; const key = Array.from(cam.p).join();
+    if (S.frames && S.framesKey === key) { frames = S.frames; r = { fast: true }; bar.style.width = '90%'; crumb('frames kept from the last read'); } // same video, same court: the reading is not repeated (after a failed calculation, or a second click)
+    if (!r && !S.slow && !window.__baselineNoScanWorker) try { // normal path: everything heavy happens in a worker
       let unlock = null; if (navigator.locks) navigator.locks.request('baseline-analysis-' + Math.random(), () => new Promise(r => { unlock = r; })).catch(() => {}); // holding a lock tells the browser this tab is working, so it is not frozen while in the background
       try {
       // the video is split into shares at key frames and each share is read by its own worker: on a machine with several cores this is the biggest saving of all
@@ -103,10 +106,10 @@ async function run() { crumb('run mode ' + S.mode); step(3); $('bar').style.widt
     if (!r) { const det = new Detector(W, H, cam, Object.values(S.lines).flat()); frames = []; lastP = 0; // fallback on the page itself (other containers, browsers without WebCodecs)
       r = await decodeAll(S.file, S.info, (im, tm) => { const f = det.push(im.data, tm); if (f) frames.push(f); if (++k % 20 === 0) ring(im.data, f ? f.c : []); }, onP, S.abort.signal); }
     crumb('fitting, fast ' + r.fast + ' frames ' + frames.length); $('stage').textContent = t('fitting'); $('eta').textContent = '';
-    S.frames = frames; S.shots = await fit(bar);
+    S.frames = frames; S.framesKey = key; S.shots = await fit(bar);
     window.__baseline = { shots: S.shots, frames: frames.length, seconds: (performance.now() - start) / 1000, fast: r.fast };
-    crumb('shots ' + S.shots.length); S.sel = null; S.view = 'me'; S.saved = false; S.fromHistory = false; S.sid = sessionId(S.file); $('sdate').value = fileDate(S.file); step(4); renderReport(); if (currentUser()) save();
-  } catch (e) { if (e.message === 'aborted') return; console.error(e); crumb('error ' + e.message); step(2); const m = $('calMsg'); m.className = 'msg bad'; m.textContent = t('errAnalyze', { e: e.message }); }
+    crumb('shots ' + S.shots.length); S.sel = null; S.view = 'me'; S.saved = false; S.fromHistory = false; S.sid = sessionId(S.file); $('sdate').value = fileDate(S.file); step(4); renderReport(); if (currentUser() && !window.__baselineNoSave) save();
+  } catch (e) { if (e.message === 'aborted') return; console.error(e); crumb('error ' + e.message); step(2); const m = $('calMsg'); m.className = 'msg bad'; m.textContent = t('errAnalyze', { e: e.message || '?' }); }
 }
 
 // ---- step 4: report
