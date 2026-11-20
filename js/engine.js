@@ -144,7 +144,7 @@ export function calibrate(lines, W, H, init) {
 export class Detector {
   constructor(W, H, cam, refPts) {
     this.W = W; this.H = H; this.cam = cam; this.s = Math.sqrt(W * H / (720 * 1280));
-    this.twoStep = !!globalThis.__twoStep; this.cut = new Int32Array(W); this.tape = new Int32Array(W);
+    this.oneStep = !!globalThis.__oneStep; this.cut = new Int32Array(W); this.tape = new Int32Array(W);
     const apron = cam.norm([-14, -3.5, 0])[2] > 0.5 && cam.norm([14, -3.5, 0])[2] > 0.5; // only for a camera well behind the baseline: from a corner that line runs behind the camera and would blank the whole picture
     for (let x = 0; x < W; x++) { // ignore the apron in front of the near baseline (shadows, feet)
       let yb = H; const a = cam.project([-14, -3.5, 0]), b = cam.project([14, -3.5, 0]);
@@ -205,8 +205,8 @@ export class Detector {
     let cut = false; if (this.blk) { let c = 0; for (let i = 0; i < blk.length; i++) { const e = blk[i] - this.blk[i]; if (e > 12 || e < -12) c++; } cut = c / blk.length > 0.45; } this.blk = blk; // a swaying camera changes a good part of the picture too; only a change of scene counts
     this._drift(g, cut || this.n === 0 ? 2 : this.n % 15 === 0 ? 1 : 0); if (!this.valid && !cut) this._drift(g, 2); // lost the court: look further away, but not on every frame
     this.bufs.push({ rgba, g, t, shift: this.shift.slice(), valid: this.valid, cut }); this.n++;
-    // Each picture is compared with the one before and the one after. (At 50-60 pictures a second a ball flying away moves only two or three pixels per picture; comparing two steps apart finds more of it but also twice as many leaves and shadows, and serves were lost in that noise. The far-side second look does that job now; `twoStep` remains as a test switch.)
-    if (this.bufs.length < 5) return null; const B = this.bufs, c = B[2], p = !this.twoStep || c.t - B[1].t >= 0.028 ? B[1] : B[0], nx = !this.twoStep || B[3].t - c.t >= 0.028 ? B[3] : B[4], W = this.W, H = this.H, mask = this.mask, hits = [], d = c.rgba, coarse = this.coarse, cw = this.cw; coarse.fill(0);
+    // At 50-60 pictures a second a ball flying away from the camera moves only two or three pixels from one picture to the next and overlaps itself, so it would not count as moving: compare with the pictures two steps away instead (decided picture by picture: phone video does not keep a steady rhythm). This also doubles the false candidates (leaves, shadows); `oneStep` is a test switch to compare.
+    if (this.bufs.length < 5) return null; const B = this.bufs, c = B[2], p = this.oneStep || c.t - B[1].t >= 0.028 ? B[1] : B[0], nx = this.oneStep || B[3].t - c.t >= 0.028 ? B[3] : B[4], W = this.W, H = this.H, mask = this.mask, hits = [], d = c.rgba, coarse = this.coarse, cw = this.cw; coarse.fill(0);
     // compare each pixel with the same court spot in the neighbouring frames, allowing for the camera having moved a little in between
     const op = (p.shift[1] - c.shift[1]) * W + (p.shift[0] - c.shift[0]), on = (nx.shift[1] - c.shift[1]) * W + (nx.shift[0] - c.shift[0]), mg = 2 + Math.round(16 * this.s), MT = this.mt;
     let nh = 0, idx; const F = this.fx;
