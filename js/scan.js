@@ -1,8 +1,9 @@
 // Worker: reads (its share of) the video file, decodes the frames and looks for the ball, so the page itself stays responsive even on hour-long videos.
-import { Detector, Camera } from './engine.js'; import { decodeDirect } from './decode.js';
+import { Detector, Camera, initFast } from './engine.js'; import { decodeDirect } from './decode.js';
 let info = null, part = 0;
 globalThis.__crumb = m => { if (part === 0 || /error|stalled|failed/.test(m)) self.postMessage({ crumb: (part ? 'part ' + part + ': ' : '') + m }); };
 self.onmessage = async e => { if (e.data.ping) { self.postMessage({ pong: info && info.state ? info.state() : 'starting' }); return; } const { file, W, H, duration, camP, refPts, range, skipIdle } = e.data; part = range ? range.part : 0; info = { W, H, duration };
+  const fast = e.data.noFast ? false : await initFast(new URL('../wasm/fast.wasm', import.meta.url)); globalThis.__crumb('fast loops ' + (fast ? 'on' : 'off'));
   const det = new Detector(W, H, new Camera(camP, W, H), refPts), frames = [], s = Math.max(0.8, Math.sqrt(W * H / (720 * 1280))); let k = 0, lastP = 0, lastPv = 0;
   // Dead time (picking up balls, talking, changing ends): while nothing ball-like is moving only every 4th frame is looked at; as soon as something moves steadily through three looks, every frame is used again until 2.5 s after the last such movement.
   let idle = false, lastMove = -1e9, prev1 = null, prev2 = null, skipped = 0, n = 0, wake = false;

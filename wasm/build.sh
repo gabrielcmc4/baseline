@@ -1,0 +1,3 @@
+#!/bin/sh
+# needs zig (pip install ziglang): python3 -m ziglang cc ...
+python3 -m ziglang cc -target wasm32-freestanding -O3 -msimd128 -nostdlib -Wl,--no-entry -Wl,--export=gray_blur -Wl,--export=motion -Wl,--export=far_look -Wl,--export=__heap_base -Wl,--strip-all -o fast.wasm fast.c

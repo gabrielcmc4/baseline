@@ -1,6 +1,7 @@
 // node tools/batch.mjs <video> [mode]  — full pipeline as the app does it: auto court -> detect -> analyze
 import { spawn, execFileSync } from 'node:child_process'; import fs from 'node:fs';
-import { autoCourt, growCourt, Detector, Scanner, analyze } from '../js/engine.js';
+import { autoCourt, growCourt, Detector, Scanner, analyze, initFast } from '../js/engine.js';
+if (!process.env.NOFAST) await initFast(fs.readFileSync(new URL('../wasm/fast.wasm', import.meta.url)));
 const [video, mode = 'coach', maxS] = process.argv.slice(2);
 const pr = execFileSync('ffprobe', ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=width,height,avg_frame_rate:stream_side_data=rotation:format=duration', '-of', 'json', video]).toString(), J = JSON.parse(pr), st = J.streams[0];
 let w = st.width, h = st.height; const rot = Math.abs((st.side_data_list || []).map(s => +s.rotation || 0).find(r => r) || 0); if (rot === 90 || rot === 270) [w, h] = [h, w];

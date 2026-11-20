@@ -1,4 +1,8 @@
 // Baseline analysis engine. Pure JavaScript, no DOM: runs in the browser and in Node.
+const LITTLE = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
+let FASTMOD = null; // compiled wasm/fast.wasm, if initFast() was called and the browser has WebAssembly SIMD
+export async function initFast(src) { if (FASTMOD) return true; try { const bytes = src instanceof ArrayBuffer || ArrayBuffer.isView(src) ? src : await (await fetch(src)).arrayBuffer(); FASTMOD = await WebAssembly.compile(bytes); return true; } catch (e) { FASTMOD = null; return false; } }
+export const fastOn = () => !!FASTMOD;
 export const COURT = { S: 4.115, D: 5.485, SV: 6.40, LEN: 23.77, NET: 11.885, POST: 6.4, NET_C: 0.914, NET_P: 1.07 };
 COURT.SV = 5.485; // service line distance from baseline
 const G = 9.81, KD = 0.0204, KM = 0.0371, RB = 0.0335;
@@ -150,10 +154,20 @@ export class Detector {
     this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.mt = 15; this.n = 0; this.shift = [0, 0]; this.valid = true; this.maxShift = 0; this.busy = 0; this.dropped = 0;
     this.ref = refPts || []; this.refScore = null; this.cw = Math.ceil(W / 4); this.ch = Math.ceil(H / 4); this.coarse = new Uint16Array(this.cw * this.ch);
   }
-  _gray(rgba) { const W = this.W, H = this.H, g = new Uint8Array(W * H), t = new Uint8Array(W * H);
-    for (let i = 0, j = 0; i < g.length; i++, j += 4) t[i] = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8;
-    for (let y = 1; y < H - 1; y++) { let o = y * W + 1; for (let x = 1; x < W - 1; x++, o++) g[o] = (t[o - W - 1] + 2 * t[o - W] + t[o - W + 1] + 2 * t[o - 1] + 4 * t[o] + 2 * t[o + 1] + t[o + W - 1] + 2 * t[o + W] + t[o + W + 1]) >> 4; }
+  // grey picture, lightly blurred (1-2-1 across, then 1-2-1 down: the same result as 3x3 weights in one go, at a third of the work)
+  _gray(rgba) { const W = this.W, H = this.H, N = W * H; if (this.fx === undefined) this._fast();
+    if (this.fx) { const F = this.fx; F.rgba.set(rgba); F.slot = (F.slot + 1) % F.g.length; F.x.gray_blur(F.pRgba, F.pG[F.slot], F.pT, F.pH, W, H); return F.g[F.slot]; }
+    const g = new Uint8Array(N), t = this._gt || (this._gt = new Uint8Array(N)), h = this._gh || (this._gh = new Uint16Array(N));
+    if (rgba.byteOffset % 4 === 0 && LITTLE) { const u = new Uint32Array(rgba.buffer, rgba.byteOffset, N); for (let i = 0; i < N; i++) { const v = u[i]; t[i] = ((v & 255) * 77 + ((v >>> 8) & 255) * 150 + ((v >>> 16) & 255) * 29) >> 8; } }
+    else for (let i = 0, j = 0; i < N; i++, j += 4) t[i] = (rgba[j] * 77 + rgba[j + 1] * 150 + rgba[j + 2] * 29) >> 8;
+    for (let o = 1; o < N - 1; o++) h[o] = t[o - 1] + 2 * t[o] + t[o + 1];
+    for (let y = 1; y < H - 1; y++) { let o = y * W + 1; for (let x = 1; x < W - 1; x++, o++) g[o] = (h[o - W] + 2 * h[o] + h[o + W]) >> 4; }
     return g; }
+  // The two heaviest loops (grey picture, "which pixels moved") also exist compiled to WebAssembly with SIMD (wasm/fast.c), two to three times faster and giving the same numbers. Each detector gets its own instance and memory; grey pictures live in a ring inside that memory (one more than the detector keeps).
+  _fast() { this.fx = null; if (!FASTMOD) return; try { const x = new WebAssembly.Instance(FASTMOD, {}).exports, W = this.W, H = this.H, N = W * H, RING = 7; let q = (x.__heap_base.value + 63) & ~63; const take = n => { const a = q; q = (q + n + 63) & ~63; return a; };
+      if (!this.fy) this._band(); const nb = W * (this.fy - this.fy0), pRgba = take(4 * N), pT = take(N), pH = take(2 * N), pRow = take(W), pIdx = take(4 * N), pR = take(nb), pGb = take(nb), pB = take(nb), pFm = take(nb), pLim = take(4 * W), pFidx = take(4 * nb), pG = []; for (let i = 0; i < RING; i++) pG.push(take(N)); const need = q - x.memory.buffer.byteLength; if (need > 0) x.memory.grow(Math.ceil(need / 65536)); const buf = x.memory.buffer;
+      this.fx = { x, pRgba, pT, pH, pRow, pIdx, pG, pR, pGb, pB, pFm, pLim, pFidx, slot: 0, rgba: new Uint8Array(buf, pRgba, 4 * N), idx: new Uint32Array(buf, pIdx, N), fidx: new Uint32Array(buf, pFidx, nb), g: pG.map(a => new Uint8Array(buf, a, N)) };
+      this.bgR = new Uint8Array(buf, pR, nb); this.bgG = new Uint8Array(buf, pGb, nb); this.bgB = new Uint8Array(buf, pB, nb); this.fm = new Uint8Array(buf, pFm, nb); const lim = new Int32Array(buf, pLim, W), off = Math.round(26 * this.s); for (let i = 0; i < W; i++) lim[i] = this.tape[i] - off; } catch (e) { this.fx = null; } }
   // where the court lines are in this frame relative to the frame the court was marked in (a camera on a fence sways); mode 0: small step from the last position, 1: wider look around it, 2: anywhere within reach (start, after a cut, after losing it)
   _drift(g, mode) { if (this.ref.length < 20) return; const W = this.W, H = this.H, RM = Math.round(100 * this.s), ref = this.ref;
     const score = (dx, dy) => { let s = 0; for (const p of ref) { const x = (p[0] + dx) | 0, y = (p[1] + dy) | 0; if (x >= 0 && y >= 0 && x < W && y < H) s += g[y * W + x]; } return s; };
@@ -167,13 +181,15 @@ export class Detector {
     if (this.valid) { this.lostFor = 0; this.refScore = 0.98 * this.refScore + 0.02 * best; }
     if (Math.abs(bx) > this.maxShift) this.maxShift = Math.abs(bx); if (Math.abs(by) > this.maxShift) this.maxShift = Math.abs(by); }
   // Second look at the far side. Beyond the net a ball is two or three pixels wide and near the top of its path it hardly moves in the picture, so the movement test above loses it half-way. Here the strip between the horizon and the net tape is compared with a slowly updated picture of what is normally there (each pixel creeps one step towards the current picture per frame, which settles on the usual value and ignores things passing by). A small spot that is clearly more yellow-green than that background is kept in `fb`; only the fitter's guided search uses it, to follow a shot it already has down to its bounce.
+  _band() { const W = this.W, H = this.H, s = this.s, hz = this.cam.project([0, 1e5, this.cam.C[2]])[1]; let y1 = 0; for (let x = 0; x < W; x++) if (this.tape[x] > y1) y1 = this.tape[x]; this.fy0 = Math.max(2, Math.round(Math.min(hz - 20 * s, this.cam.project([0, COURT.LEN, 3.5])[1]))); this.fy = Math.max(this.fy0 + 4, Math.min(H - 2, y1)); this.bgN = 0; this.gw = (W >> 2) + 1; const gn = this.gw * (((this.fy - this.fy0) >> 2) + 1); this.fFirst = new Float64Array(gn).fill(-9); this.fLast = new Float64Array(gn).fill(-9); }
   _far(c, out) { const W = this.W, H = this.H, s = this.s;
-    if (!this.fy) { const hz = this.cam.project([0, 1e5, this.cam.C[2]])[1]; let y1 = 0; for (let x = 0; x < W; x++) if (this.tape[x] > y1) y1 = this.tape[x]; this.fy0 = Math.max(2, Math.round(Math.min(hz - 20 * s, this.cam.project([0, COURT.LEN, 3.5])[1]))); this.fy = Math.max(this.fy0 + 4, Math.min(H - 2, y1)); const n = W * (this.fy - this.fy0); this.bgR = new Uint8Array(n); this.bgG = new Uint8Array(n); this.bgB = new Uint8Array(n); this.fm = new Uint8Array(n); this.bgN = 0; this.gw = (W >> 2) + 1; const gn = this.gw * (((this.fy - this.fy0) >> 2) + 1); this.fFirst = new Float64Array(gn).fill(-9); this.fLast = new Float64Array(gn).fill(-9); }
-    if (c.cut) this.bgN = 0; const d = c.rgba, sx = c.shift[0], sy = c.shift[1], y0 = this.fy0, y1 = this.fy, R = this.bgR, G = this.bgG, B = this.bgB, fm = this.fm, init = this.bgN === 0, hits = [], lim = this.tape, off = Math.round(26 * s);
-    for (let yr = y0; yr < y1; yr++) { const y = yr + sy; if (y < 1 || y >= H - 1) continue; let i = (yr - y0) * W, xa = Math.max(1, 1 - sx), xb = Math.min(W - 1, W - 1 - sx); i += xa;
+    if (!this.fy) this._band(); if (!this.bgR) { const n = W * (this.fy - this.fy0); this.bgR = new Uint8Array(n); this.bgG = new Uint8Array(n); this.bgB = new Uint8Array(n); this.fm = new Uint8Array(n); }
+    if (c.cut) this.bgN = 0; const d = c.rgba, sx = c.shift[0], sy = c.shift[1], y0 = this.fy0, y1 = this.fy, R = this.bgR, G = this.bgG, B = this.bgB, fm = this.fm, init = this.bgN === 0, lim = this.tape, off = Math.round(26 * s), F = this.fx; let hits;
+    if (F && F.pR) { const ya = Math.max(1, y0 + sy), yb = Math.min(H - 1, y1 + sy); if (yb > ya) F.rgba.set(d.subarray(ya * W * 4, yb * W * 4), ya * W * 4); hits = F.fidx.subarray(0, F.x.far_look(F.pRgba, F.pR, F.pGb, F.pB, F.pFm, F.pLim, F.pFidx, F.pRow, W, H, y0, y1, sx, sy, init ? 1 : 0)); }
+    else { hits = []; for (let yr = y0; yr < y1; yr++) { const y = yr + sy; if (y < 1 || y >= H - 1) continue; let i = (yr - y0) * W, xa = Math.max(1, 1 - sx), xb = Math.min(W - 1, W - 1 - sx); i += xa;
       for (let xr = xa; xr < xb; xr++, i++) { const j = ((y * W) + xr + sx) * 4, r = d[j], g = d[j + 1], b = d[j + 2]; if (init) { R[i] = r; G[i] = g; B[i] = b; continue; }
         const dr = r - R[i], dg = g - G[i], db = b - B[i]; if (dg > 20 && dr > -10 && db < dg - 4 && yr < lim[xr] - off) { fm[i] = 1; hits.push(i); }
-        if (dr > 0) R[i]++; else if (dr < 0) R[i]--; if (dg > 0) G[i]++; else if (dg < 0) G[i]--; if (db > 0) B[i]++; else if (db < 0) B[i]--; } }
+        if (dr > 0) R[i]++; else if (dr < 0) R[i]--; if (dg > 0) G[i]++; else if (dg < 0) G[i]--; if (db > 0) B[i]++; else if (db < 0) B[i]--; } } }
     this.bgN++; if (this.bgN < 20 || hits.length > 3000) { for (const i of hits) fm[i] = 0; out.fb = null; return; } // the background needs a moment to settle; a flood of spots is the camera shaking
     const stack = [], amax = 70 * s * s, n = fm.length, gw = this.gw; for (const i0 of hits) { if (fm[i0] !== 1) continue; let a = 0, mx = 0, my = 0; stack.push(i0); fm[i0] = 2; while (stack.length) { const i = stack.pop(); a++; mx += i % W; my += (i / W) | 0; for (const q of [i - 1, i + 1, i - W, i + W, i - W - 1, i - W + 1, i + W - 1, i + W + 1]) if (q >= 0 && q < n && fm[q] === 1) { fm[q] = 2; stack.push(q); } }
       if (a >= 2 && a <= amax) { const ux = mx / a, uy = my / a, ci = (uy >> 2) * gw + (ux >> 2); // something that stays in the same spot for more than half a second is a lamp, a sign or a leaf, not a ball
@@ -183,7 +199,7 @@ export class Detector {
   // push a frame; returns {t, c:[[x,y,area]], blobs:[[x0,y0,x1,y1]], valid} for the PREVIOUS frame (or null)
   push(rgba, t) {
     const g = this._gray(rgba);
-    if (this.bufs.length) { const q = this.bufs[this.bufs.length - 1].g; let d = 0, m = 0; for (let i = 0; i < g.length; i += 97) { const e = g[i] - q[i]; d += e < 0 ? -e : e; m++; } if (d / m < 0.02) return null; } // repeated frame (re-encoded video): skip it
+    if (this.bufs.length) { const q = this.bufs[this.bufs.length - 1].g; let d = 0, m = 0; for (let i = 0; i < g.length; i += 97) { const e = g[i] - q[i]; d += e < 0 ? -e : e; m++; } if (d / m < 0.02) { if (this.fx) this.fx.slot = (this.fx.slot + this.fx.g.length - 1) % this.fx.g.length; return null; } } // repeated frame (re-encoded video): skip it
     // block averages of the picture: a big share of blocks changing at once means the video was edited here and another clip starts
     const bw = this.W >> 4, bh = this.H >> 4, blk = new Uint8Array(bw * bh); for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) { let sum = 0; for (let dy = 2; dy < 16; dy += 4) { const o = (by * 16 + dy) * this.W + bx * 16; sum += g[o + 2] + g[o + 6] + g[o + 10] + g[o + 14]; } blk[by * bw + bx] = sum >> 4; }
     let cut = false; if (this.blk) { let c = 0; for (let i = 0; i < blk.length; i++) { const e = blk[i] - this.blk[i]; if (e > 12 || e < -12) c++; } cut = c / blk.length > 0.45; } this.blk = blk; // a swaying camera changes a good part of the picture too; only a change of scene counts
@@ -193,8 +209,10 @@ export class Detector {
     if (this.bufs.length < 5) return null; const B = this.bufs, c = B[2], p = c.t - B[1].t >= 0.028 ? B[1] : B[0], nx = B[3].t - c.t >= 0.028 ? B[3] : B[4], W = this.W, H = this.H, mask = this.mask, hits = [], d = c.rgba, coarse = this.coarse, cw = this.cw; coarse.fill(0);
     // compare each pixel with the same court spot in the neighbouring frames, allowing for the camera having moved a little in between
     const op = (p.shift[1] - c.shift[1]) * W + (p.shift[0] - c.shift[0]), on = (nx.shift[1] - c.shift[1]) * W + (nx.shift[0] - c.shift[0]), mg = 2 + Math.round(16 * this.s), MT = this.mt;
-    for (let y = mg; y < H - mg; y++) { let o = y * W + mg;
-      for (let x = mg; x < W - mg; x++, o++) { const a = c.g[o]; let d1 = a - p.g[o + op]; if (d1 < 0) d1 = -d1; if (d1 <= MT) continue; let d2 = a - nx.g[o + on]; if (d2 < 0) d2 = -d2; if (d2 <= MT) continue;
+    let nh = 0, idx; const F = this.fx;
+    if (F && c.g.buffer === F.x.memory.buffer && p.g.buffer === c.g.buffer && nx.g.buffer === c.g.buffer) { nh = F.x.motion(c.g.byteOffset, p.g.byteOffset, nx.g.byteOffset, op, on, MT, W, H, mg, F.pIdx, F.pRow); idx = F.idx; }
+    else { idx = this._idx || (this._idx = new Uint32Array(W * H)); for (let y = mg; y < H - mg; y++) { let o = y * W + mg; for (let x = mg; x < W - mg; x++, o++) { const a = c.g[o]; let d1 = a - p.g[o + op]; if (d1 < 0) d1 = -d1; if (d1 <= MT) continue; let d2 = a - nx.g[o + on]; if (d2 < 0) d2 = -d2; if (d2 <= MT) continue; idx[nh++] = o; } } }
+    { for (let k = 0; k < nh; k++) { const o = idx[k], y = (o / W) | 0, x = o - y * W, a = c.g[o]; let d1 = a - p.g[o + op]; if (d1 < 0) d1 = -d1; let d2 = a - nx.g[o + on]; if (d2 < 0) d2 = -d2;
         coarse[(y >> 2) * cw + (x >> 2)]++;
         if (y > this.cut[x]) continue;
         const j = o * 4, r = d[j], gg = d[j + 1], b = d[j + 2], mx = r > gg ? (r > b ? r : b) : (gg > b ? gg : b), mn = r < gg ? (r < b ? r : b) : (gg < b ? gg : b), df = mx - mn; if (mx < 100 || df === 0) continue;
