@@ -81,30 +81,38 @@ export async function parseMp4(file) {
     cts.set(dts); if (ctts) { const nn = v.getUint32(ctts.a + 4); let ci = 0; for (let e = 0; e < nn && ci < n; e++) { const cnt = v.getUint32(ctts.a + 8 + 8 * e), d = v.getInt32(ctts.a + 12 + 8 * e); for (let k = 0; k < cnt && ci < n; k++) cts[ci++] += d; } }
     const sync = new Uint8Array(n); if (stss) { const ns = v.getUint32(stss.a + 4); for (let i = 0; i < ns; i++) { const k = v.getUint32(stss.a + 8 + 4 * i); if (k >= 1 && k <= n) sync[k - 1] = 1; } } else sync.fill(1);
     let cmin = Infinity; for (let i = 0; i < Math.min(n, 64); i++) if (cts[i] < cmin) cmin = cts[i];
+    // Edit list: the file itself says which stretches of the stored pictures are shown, and when. Phone videos recorded in chunks keep a run-up of pictures before each chunk that no player shows; the time a viewer sees on the player's bar is the edited one. pres[i] is that time in seconds, -1 for a picture that is never shown.
+    const pres = new Float64Array(n), mvhd = find(kids(v, 0, v.byteLength), 'mvhd'), mts = mvhd ? v.getUint32(mvhd.a + (v.getUint8(mvhd.a) === 1 ? 20 : 12)) : 0, edts = find(tk, 'edts'), elst = edts && find(kids(v, edts.a, edts.b), 'elst'), edits = []; let hidden = 0;
+    if (elst && mts) { const ver = v.getUint8(elst.a), ne2 = v.getUint32(elst.a + 4); let q = elst.a + 8, at = 0; for (let e = 0; e < ne2 && q + (ver ? 20 : 12) <= elst.b; e++) { const dur = ver ? v.getUint32(q) * 4294967296 + v.getUint32(q + 4) : v.getUint32(q), mt = ver ? v.getInt32(q + 8) * 4294967296 + v.getUint32(q + 12) : v.getInt32(q + 4); q += ver ? 20 : 12;
+        if (mt >= 0 && dur > 0) edits.push([mt, mt + dur * timescale / mts, at / mts]); at += dur; } }
+    const plain = edits.length < 2 || edits.some((e, k) => k && e[0] < edits[k - 1][1] - 1); // one stretch (or none): the usual case, time simply counts from the first picture; stretches that go back in the stored pictures are not handled
+    if (plain) for (let i = 0; i < n; i++) pres[i] = (cts[i] - cmin) / timescale;
+    else { const t0 = edits[0][2]; for (let i = 0; i < n; i++) { let lo = 0, hi = edits.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (edits[mid][0] <= cts[i] + 0.5) lo = mid; else hi = mid - 1; } const e = edits[lo]; if (cts[i] + 0.5 >= e[0] && cts[i] + 0.5 < e[1]) pres[i] = e[2] - t0 + (cts[i] - e[0]) / timescale; else { pres[i] = -1; hidden++; } } }
     const raw = (x0, x1) => new Uint8Array(v.buffer.slice(v.byteOffset + x0, v.byteOffset + x1)), mo2 = tkhd ? tkhd.a + (v.getUint8(tkhd.a) === 1 ? 52 : 40) : -1;
-    return { codec, description, width, height, ang, timescale, n, size, offset, dts, cts, sync, cmin, duration: tt / timescale, summary, total: tt, stsdRaw: raw(stsd.a - 8, stsd.b), matrix: tkhd ? raw(mo2, mo2 + 36) : null, tkwh: tkhd ? raw(mo2 + 36, mo2 + 44) : null }; }
+    return { codec, description, width, height, ang, timescale, n, size, offset, dts, cts, sync, cmin, pres, hidden, edits: plain ? null : edits, duration: tt / timescale, summary, total: tt, stsdRaw: raw(stsd.a - 8, stsd.b), matrix: tkhd ? raw(mo2, mo2 + 36) : null, tkwh: tkhd ? raw(mo2 + 36, mo2 + 44) : null }; }
   throw new Error('no usable video track (' + summary.join(',') + ')');
 }
 export async function decodeDirect(file, info, onFrame, onProgress, signal, range) { // range {part, parts}: decode only that share of the video (cut at key frames), so several workers can each take a share
   const m = await parseMp4(file), { W, H } = info, fps = m.n / (m.duration || info.duration), stride = fps > 75 ? Math.round(fps / 60) : 1; info.fps = fps / stride;
   const turned = (m.width > m.height) !== (W > H) && W !== H, rot = turned ? (m.ang === 270 ? 270 : 90) : (m.ang === 180 ? 180 : 0);
-  globalThis.__crumb?.('direct ' + m.summary.join(',') + ' ' + m.codec + ' ' + m.width + 'x' + m.height + ' samples ' + m.n + ' fps ' + fps.toFixed(1) + ' rot ' + rot);
+  globalThis.__crumb?.('direct ' + m.summary.join(',') + ' ' + m.codec + ' ' + m.width + 'x' + m.height + ' samples ' + m.n + ' fps ' + fps.toFixed(1) + ' rot ' + rot + (m.edits ? ' edits ' + m.edits.length + ' hidden ' + m.hidden : ''));
   const cfg = { codec: m.codec, codedWidth: m.width, codedHeight: m.height, description: m.description }, sup = await VideoDecoder.isConfigSupported(cfg); globalThis.__crumb?.('codec supported ' + sup.supported); if (!sup.supported) throw new Error('codec');
   // two ways to get the pixels of a frame: a canvas kept in memory, or one on the graphics card read back afterwards. Which is faster depends on the machine and the video (10-bit phone video decoded by the graphics card is very slow the first way), so both are timed on the first frames.
   const mk = soft => { const c = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(W, H) : Object.assign(document.createElement('canvas'), { width: W, height: H }); return c.getContext('2d', soft ? { willReadFrequently: true } : {}); };
   const ctxs = [mk(true), mk(false)], cost = [0, 0], tried = [0, 0]; let pick = -1, ctx = ctxs[0];
   let failed = null, pending = 0, count = 0, wake = null;
   // Some decoders hand frames back in the order they were stored, not the order they are shown (video with B-frames): keep a few and always release the earliest, so the ball search sees them in true time order.
-  const held = [], HOLD = 8; let lastTs = -1, reordered = 0;
+  const held = [], HOLD = 8; let lastTs = -1, reordered = 0; const shown = new Map(); // decoder time stamp -> time on the player's clock (or -1: stored but never shown)
   const dec = new VideoDecoder({ error: e => { failed = e; globalThis.__crumb?.('decoder error ' + e.message); if (wake) { const w = wake; wake = null; w(); } }, output: f0 => { pending--; if (held.length && f0.timestamp < held[held.length - 1].timestamp) reordered++; let k = held.length; while (k > 0 && held[k - 1].timestamp > f0.timestamp) k--; held.splice(k, 0, f0); if (held.length > HOLD) emit(held.shift()); if (wake) { const w = wake; wake = null; w(); } } });
   const emit = fr => { try { if (fr.timestamp <= lastTs) { return; } lastTs = fr.timestamp;
       const which = pick >= 0 ? pick : (count >> 1) % 2, tr = performance.now(); ctx = ctxs[which];
-      if (count % stride === 0) { ctx.save();
+      const pt = shown.get(fr.timestamp); shown.delete(fr.timestamp);
+      if (count % stride === 0 && pt !== undefined && pt >= 0) { ctx.save();
         if (rot === 90) { ctx.translate(W, 0); ctx.rotate(Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); } else if (rot === 270) { ctx.translate(0, H); ctx.rotate(-Math.PI / 2); ctx.drawImage(fr, 0, 0, H, W); }
         else if (rot === 180) { ctx.translate(W, H); ctx.rotate(Math.PI); ctx.drawImage(fr, 0, 0, W, H); } else ctx.drawImage(fr, 0, 0, W, H);
         ctx.restore(); const im = ctx.getImageData(0, 0, W, H);
         if (pick < 0 && count >= 4) { cost[which] += performance.now() - tr; tried[which]++; if (tried[0] >= 6 && tried[1] >= 6) { pick = cost[1] / tried[1] < 0.8 * cost[0] / tried[0] ? 1 : 0; globalThis.__crumb?.('pixels: memory canvas ' + (cost[0] / tried[0]).toFixed(1) + 'ms, graphics canvas ' + (cost[1] / tried[1]).toFixed(1) + 'ms per frame, using ' + (pick ? 'graphics' : 'memory')); } }
-        onFrame(im, fr.timestamp / 1e6); }
+        onFrame(im, pt); }
       if (count === 0 || count % 300 === 0) globalThis.__crumb?.('frame ' + count + ' ' + fr.format + ' pending ' + pending);
       count++; onProgress(Math.min(1, count / span)); } catch (e) { failed = e; } finally { fr.close(); } };
   dec.configure(cfg);
@@ -113,7 +121,7 @@ export async function decodeDirect(file, info, onFrame, onProgress, signal, rang
   while (i < i1 && !m.sync[i]) i++; // decoding has to start on a key frame
   for (; i < i1; i++) { if (signal?.aborted) { try { dec.close(); } catch (e) {} throw new Error('aborted'); } if (failed) throw failed; const o = m.offset[i], sz = m.size[i]; if (!sz) continue;
     if (!win || o < w0 || o + sz > w0 + win.byteLength) { phase = 'read ' + o; w0 = o; win = new Uint8Array(await file.slice(o, o + Math.max(sz, 4 * 1024 * 1024)).arrayBuffer()); if (win.byteLength < sz) break; }
-    phase = 'decode'; pending++; dec.decode(new EncodedVideoChunk({ type: m.sync[i] ? 'key' : 'delta', timestamp: Math.round((m.cts[i] - m.cmin) * 1e6 / m.timescale), data: win.subarray(o - w0, o - w0 + sz) }));
+    phase = 'decode'; pending++; const stamp = Math.round((m.cts[i] - m.cmin) * 1e6 / m.timescale); shown.set(stamp, m.pres[i]); dec.decode(new EncodedVideoChunk({ type: m.sync[i] ? 'key' : 'delta', timestamp: stamp, data: win.subarray(o - w0, o - w0 + sz) }));
     // wait for the decoder without timers: browsers slow timers down to one per minute in a tab left in the background, which would stall a long analysis
     phase = 'wait'; let limit = 24; while (pending > limit && !failed) { const before = count; await new Promise(r => { wake = r; setTimeout(r, 3000); }); if (count === before && dec.decodeQueueSize === 0 && limit < 96) limit += 8; } // nothing came out although the decoder is idle: it wants more input first
   }
