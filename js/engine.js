@@ -206,7 +206,7 @@ export class Detector {
     this._drift(g, cut || this.n === 0 ? 2 : this.n % 15 === 0 ? 1 : 0); if (!this.valid && !cut) this._drift(g, 2); // lost the court: look further away, but not on every frame
     this.bufs.push({ rgba, g, t, shift: this.shift.slice(), valid: this.valid, cut }); this.n++;
     // At 50-60 pictures a second a ball flying away from the camera moves only two or three pixels from one picture to the next and overlaps itself, so it would not count as moving: compare with the pictures two steps away instead (decided picture by picture: phone video does not keep a steady rhythm).
-    if (this.bufs.length < 5) return null; const B = this.bufs, c = B[2], p = c.t - B[1].t >= 0.028 ? B[1] : B[0], nx = B[3].t - c.t >= 0.028 ? B[3] : B[4], W = this.W, H = this.H, mask = this.mask, hits = [], d = c.rgba, coarse = this.coarse, cw = this.cw; coarse.fill(0);
+    if (this.bufs.length < 5) return null; const B = this.bufs, c = B[2], p = this.oneStep || c.t - B[1].t >= 0.028 ? B[1] : B[0], nx = this.oneStep || B[3].t - c.t >= 0.028 ? B[3] : B[4], W = this.W, H = this.H, mask = this.mask, hits = [], d = c.rgba, coarse = this.coarse, cw = this.cw; coarse.fill(0);
     // compare each pixel with the same court spot in the neighbouring frames, allowing for the camera having moved a little in between
     const op = (p.shift[1] - c.shift[1]) * W + (p.shift[0] - c.shift[0]), on = (nx.shift[1] - c.shift[1]) * W + (nx.shift[0] - c.shift[0]), mg = 2 + Math.round(16 * this.s), MT = this.mt;
     let nh = 0, idx; const F = this.fx;
