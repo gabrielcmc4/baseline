@@ -12,10 +12,10 @@ void gray_blur(const u8 *restrict rgba, u8 *restrict g, u8 *restrict t, u16 *res
     for (int x = 1; x < W - 1; x++) o[x] = (u8)((a[x] + 2 * b[x] + c[x]) >> 4); }
 }
 
-// pixels that differ by more than MT from the same spot in both neighbouring pictures (shifted by op / on pixels); writes their indices in row order, returns how many
-int motion(const u8 *restrict c, const u8 *restrict p, const u8 *restrict n, int op, int on, int MT, int W, int H, int mg, u32 *restrict idx, u8 *restrict row) {
-  int N = W * H, cnt = 0;
-  for (int y = mg; y < H - mg; y++) { int o0 = y * W;
+// pixels of rows ya..yb that differ by more than MT from the same spot in both neighbouring pictures (shifted by op / on pixels); writes their indices in row order, returns how many
+int motion(const u8 *restrict c, const u8 *restrict p, const u8 *restrict n, int op, int on, int MT, int W, int H, int mg, u32 *restrict idx, u8 *restrict row, int ya, int yb) {
+  int N = W * H, cnt = 0; if (ya < mg) ya = mg; if (yb > H - mg) yb = H - mg;
+  for (int y = ya; y < yb; y++) { int o0 = y * W;
     // part of the row where both shifted reads stay inside the picture
     int lo = mg, hi = W - mg; { int a = -(o0 + op), b = -(o0 + on); if (a > lo) lo = a; if (b > lo) lo = b; int e1 = N - (o0 + op), e2 = N - (o0 + on); if (e1 < hi) hi = e1; if (e2 < hi) hi = e2; if (lo > W - mg) lo = W - mg; if (hi < lo) hi = lo; }
     // a read outside the picture counts as "different" for that neighbour, as it does in the JavaScript
