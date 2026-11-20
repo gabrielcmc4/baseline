@@ -99,11 +99,11 @@ async function run() { crumb('run mode ' + S.mode); step(3); $('bar').style.widt
             else if (d.done) { outp[d.part] = d; w.terminate(); if (--left === 0) { end(); const fr = []; for (const o of outp) for (const f of o.frames) fr.push(f); res({ frames: fr, fps: outp[0].fps, maxShift: Math.max(...outp.map(o => o.maxShift)), busy: outp.reduce((a, o) => a + o.busy, 0), skipped: outp.reduce((a, o) => a + o.skipped, 0) }); } }
             else if (d.error) { end(); killAll(); const er = new Error(d.error); er.got = d.got + prog.reduce((a, b) => a + b, 0); rej(er); } };
           w.onerror = e => { end(); killAll(); const er = new Error(e.message || 'worker'); er.got = 0; rej(er); };
-          w.postMessage({ file: S.file, W, H, duration: S.info.duration, camP: Array.from(cam.p), refPts: Object.values(S.lines).flat(), range: { part: pt, parts }, skipIdle: !window.__baselineNoSkip, noFast: !!window.__baselineNoFast, oneStep: !!window.__baselineOneStep }); } });
+          w.postMessage({ file: S.file, W, H, duration: S.info.duration, camP: Array.from(cam.p), refPts: Object.values(S.lines).flat(), range: { part: pt, parts }, skipIdle: !window.__baselineNoSkip, noFast: !!window.__baselineNoFast, oneStep: !!window.__baselineOneStep || S.mode === 'serve' /* serve practice: a serve moves far in every picture, and comparing two steps apart only adds false balls there */ }); } });
       } finally { if (unlock) unlock(); }
       frames = r.frames; S.info.fps = r.fps; r.fast = true; crumb('scan done frames ' + frames.length + ' moved ' + r.maxShift + 'px busy ' + r.busy + ' idle frames skipped ' + r.skipped + ' in ' + Math.round((performance.now() - start) / 1000) + 's');
     } catch (e) { if (e.message === 'aborted' || e.got > 0) throw e; crumb('scan worker failed: ' + e.message); r = null; }
-    if (!r) { const det = new Detector(W, H, cam, Object.values(S.lines).flat()); frames = []; lastP = 0; // fallback on the page itself (other containers, browsers without WebCodecs)
+    if (!r) { const det = new Detector(W, H, cam, Object.values(S.lines).flat()); det.oneStep = !!window.__baselineOneStep || S.mode === 'serve'; frames = []; lastP = 0; // fallback on the page itself (other containers, browsers without WebCodecs)
       r = await decodeAll(S.file, S.info, (im, tm) => { const f = det.push(im.data, tm); if (f) frames.push(f); if (++k % 20 === 0) ring(im.data, f ? f.c : []); }, onP, S.abort.signal); }
     crumb('fitting, fast ' + r.fast + ' frames ' + frames.length); $('stage').textContent = t('fitting'); $('eta').textContent = '';
     S.frames = frames; S.framesKey = key; S.shots = await fit(bar);

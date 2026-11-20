@@ -526,6 +526,8 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       shots.push({ t: t0, who: mode === 'serve' ? 'me' : 'opp', far: true, bounce: !!ground, n: pts.length, nTotal: pts.length, rms: fit.rms, rmsFlat: null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
         land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit: false, netZ: null, serve: mode === 'serve' || serve, target, feetY: null,
         path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv }); } }
+  // Serve practice reports serves only, and a serve is neither a lob nor a record: whatever comes out slower than 50 or faster than 215 km/h is a fit gone wrong, not a serve.
+  if (mode === 'serve') for (let i = shots.length - 1; i >= 0; i--) if (!(shots[i].speed >= 50 && shots[i].speed <= 215)) { shots.splice(i, 1); meta.rej.speed++; }
   ms.all = Date.now() - T0; meta.ms = ms; shots.sort((a, b) => a.t - b.t); shots.meta = meta; return shots;
 }
 
