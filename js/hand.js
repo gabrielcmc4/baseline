@@ -21,20 +21,22 @@ const slide = (cur, ref, R = 8) => { const w = cur.w, h = cur.h, A = cur.a, B = 
 // where the ball was `tau` seconds after the start of its track (negative: before), gravity only: over a few tenths of a second drag and spin move it by centimetres
 const at = (s, tau) => [s.p0[0] + s.v0[0] * tau, s.p0[1] + s.v0[1] * tau, s.p0[2] + s.v0[2] * tau - 0.5 * G * tau * tau];
 
-export function hitMoment(s, yOff = 1.25) { // time of the hit relative to the start of the track, and where the ball and the hitter were
-  const dir = s.v0[1] >= 0 ? 1 : -1, vy = Math.max(3, Math.abs(s.v0[1]));
-  const feet = s.feetY != null && isFinite(s.feetY) && Math.abs(s.p0[1] - s.feetY) < 4 ? s.feetY : s.p0[1] - dir * yOff; // the hitter's feet along the court
-  let tau = (feet + dir * 0.4 - s.p0[1]) / (dir * vy); tau = Math.max(-0.4, Math.min(0, tau)); // the ball is met about 0.4 m in front of the feet
+// Time of the hit relative to the start of the track, where the ball was then and where the hitter stood.
+// The track starts a tenth or two of a second after the hit (the blurred ball next to the racket is not found), and how deep in the court it starts is the one thing a single camera measures badly. What the picture does show well is height: seen from above and behind, a ball flying away climbs the picture fast. So the fitted flight is run backwards until the ball is back down at hitting height (between knee and waist) at the place where the hitter stands.
+export function hitMoment(s, cam, yOff = 1.25) { const dir = s.v0[1] >= 0 ? 1 : -1, REACH = 0.5, HIT = 0.7;
+  const hasFeet = s.feetY != null && isFinite(s.feetY) && Math.abs(s.p0[1] - s.feetY) < 6, feet = hasFeet ? s.feetY : s.p0[1] - dir * yOff, yHit = feet + dir * REACH;
+  let tau = 0; for (let k = 0; k <= 70; k++) { const tt = -k * 0.005, b = at(s, tt), v = cam.project(b)[1], vc = cam.project([b[0], yHit, HIT])[1]; tau = tt; if (v >= vc) break; }
   const ball = at(s, tau); return { tau, ball, feet: [ball[0], feet] }; }
 
 export async function strokeSides(shots, cam, grab, { duration = Infinity, step = 15, yOff = 1.25, onProgress, signal, debug } = {}) {
+  if (isFinite(duration)) step = Math.max(2, Math.min(step, duration / 10)); // a short clip: take the other moments closer together
   const bank = new Map(), list = shots.filter(s => !s.far && !s.serve && s.p0 && s.v0).sort((a, b) => a.t - b.t); let done = 0;
   const frame = async t => { const key = Math.round(t * 1000); if (bank.has(key)) return bank.get(key); const im = await grab(t); const p = im ? planes(im) : null; bank.set(key, p); return p; };
   for (const s of list) { if (signal && signal.aborted) return; s.side = ''; s.sideM = null;
-    try { const hm = hitMoment(s, yOff), tc = Math.max(0, s.t + hm.tau);
+    try { const hm = hitMoment(s, cam, yOff), tc = Math.max(0, s.t + hm.tau);
       // pictures of the same place at other moments: every `step` seconds around the shot, none closer than 4 s
-      const g0 = Math.round(tc / step) * step, times = []; for (let j = -5; j <= 5; j++) { const g = g0 + j * step; if (g >= 0.5 && g <= duration - 0.5 && Math.abs(g - tc) >= 4) times.push(g); }
-      for (const k of [...bank.keys()]) if (k / 1000 < g0 - 6 * step) bank.delete(k); // shots come in time order: older pictures are not needed again
+      const g0 = Math.round(tc / step) * step, times = [], far = Math.min(4, 1.5 * step); for (let j = -6; j <= 6; j++) { const g = g0 + j * step; if (g >= 0.5 && g <= duration - 0.5 && Math.abs(g - tc) >= far) times.push(g); }
+      for (const k of [...bank.keys()]) if (k / 1000 < g0 - 7 * step) bank.delete(k); // shots come in time order: older pictures are not needed again
       const cur = planes(await grab(tc)), refs = (await Promise.all(times.map(frame))).filter(p => p && p.w === cur.w && p.h === cur.h); if (refs.length < 4) { done++; continue; }
       const k = cur.w / cam.W, P = X => { const q = cam.project(X); return [q[0] * k, q[1] * k]; };
       const fx = hm.feet[0], fy = hm.feet[1], ppm = Math.abs(P([fx + 0.5, fy, 1])[0] - P([fx - 0.5, fy, 1])[0]); if (!(ppm > 12)) { done++; continue; } // too small in the picture to tell trunk from arm
