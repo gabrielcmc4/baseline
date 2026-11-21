@@ -153,3 +153,24 @@ a.btn{text-decoration:none}.trim .msg{margin:.8rem 0 0}
 
 /* tick boxes that choose the shots for the trimmed video */
 th.pick,td.pick{width:2.4rem;text-align:center;padding-left:.4rem;padding-right:.4rem}td.pick input,th.pick input{width:1.15rem;height:1.15rem;accent-color:var(--saddle);cursor:pointer;vertical-align:middle}#trimCount{margin:0;align-self:center}
+
+/* shot filters */
+.filters{display:grid;grid-template-columns:max-content 1fr;gap:.55rem 1rem;align-items:center;padding:.9rem 1rem;margin:0 0 .6rem;background:var(--paper);border:1px solid var(--sand);border-radius:10px}
+.filters .lab{font-weight:500;color:var(--saddle);font-size:.92rem}
+.filters .opts{display:flex;flex-wrap:wrap;gap:.4rem .45rem;align-items:center}
+.chip{font:inherit;font-size:.93rem;border:1px solid var(--tan);background:var(--white);color:var(--espresso);border-radius:999px;padding:.34rem .8rem;min-height:36px;cursor:pointer;display:inline-flex;align-items:center;gap:.4rem;line-height:1.1;transition:background .15s,border-color .15s}
+.chip small{color:var(--ink2);font-size:.82em}
+.chip:hover{border-color:var(--espresso)}
+.chip[aria-pressed="true"]{background:var(--espresso);border-color:var(--espresso);color:var(--white)}
+.chip[aria-pressed="true"] small{color:var(--sand)}
+.chip:focus-visible{outline:2px solid var(--ball);outline-offset:2px}
+.filters .spd{display:inline-flex;align-items:center;gap:.4rem;color:var(--saddle);font-size:.92rem}
+.filters .spd input{font:inherit;color:var(--espresso);border:1px solid var(--tan);border-radius:8px;padding:.3rem .5rem;width:5.2rem;min-height:36px;background:var(--white)}
+.filters .foot{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:.5rem 1.2rem;align-items:center;justify-content:space-between;border-top:1px solid var(--sand);padding-top:.6rem;margin-top:.1rem}
+.filters .foot .switch{font-size:.92rem;color:var(--saddle)}
+.filtcount{margin:.2rem 0 .6rem;color:var(--saddle);font-size:.93rem;min-height:1.2em}
+.filtnote{margin:0 0 1rem;padding:.6rem .9rem;border-left:4px solid var(--ball);background:var(--paper);border-radius:0 8px 8px 0;font-size:.95rem;display:flex;flex-wrap:wrap;gap:.3rem 1rem;align-items:center;justify-content:space-between}
+.filtnote[hidden]{display:none}
+@media (max-width:640px){.filters{grid-template-columns:1fr;gap:.25rem}.filters .lab{margin-top:.45rem}.filters .spd input{width:4.6rem}}
+@media (prefers-reduced-motion:reduce){.chip{transition:none}}
+.chip:disabled{opacity:.45;cursor:default}.chip:disabled:hover{border-color:var(--tan)}

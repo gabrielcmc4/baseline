@@ -86,6 +86,7 @@
     <span class="hint" data-i18n="sessionKindHint"></span><span id="modeMsg" class="msg"></span>
   </div>
   <div class="row who2 noprint" id="who2" hidden></div>
+  <p class="filtnote noprint" id="filtNote" hidden></p>
   <div class="stats" id="stats"></div>
   <div class="views">
     <figure class="panel"><figcaption data-i18n="topView"></figcaption><div id="top"></div><div class="legend" id="legend"></div></figure>
@@ -94,8 +95,11 @@
       <div class="panel sel" id="sel"></div>
     </div>
   </div>
-  <div class="panel"><h2 data-i18n="shotList"></h2><div class="tablewrap"><table id="tbl"></table></div></div>
-  <div class="panel trust"><h2 data-i18n="accTitle"></h2><p id="acc"></p><p id="accSpin"></p></div>
+  <div class="panel" id="listPanel"><h2 data-i18n="shotList"></h2>
+    <div class="filters noprint" id="filters" hidden></div>
+    <p class="filtcount" id="filtCount" aria-live="polite"></p>
+    <div class="tablewrap"><table id="tbl"></table></div></div>
+  <div class="panel trust"><h2 data-i18n="accTitle"></h2><p id="acc"></p><p id="accSpin"></p><p id="accHand" hidden></p></div>
   <div class="panel noprint trim" id="trimBox" hidden>
     <h3 data-i18n="trimTitle"></h3><p class="help" data-i18n="trimHelp"></p>
     <div class="row trimrow"><label class="num"><span data-i18n="trimBefore"></span><input type="number" id="trimB" min="0" max="10" step="0.5" value="2" inputmode="decimal"></label>

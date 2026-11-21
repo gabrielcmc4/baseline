@@ -42,13 +42,15 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       others.sort((a, b) => a[0] - b[0]); const times = others.slice(0, 5).map(q => q[1]);
       const g0 = Math.round(tc / step) * step, far = Math.min(4, 1.5 * step), grid = []; for (let j = -6; j <= 6; j++) { const g = g0 + j * step; if (g >= 0.5 && g <= duration - 0.5 && Math.abs(g - tc) >= far) grid.push(g); }
       grid.sort((a, b) => Math.abs(a - tc) - Math.abs(b - tc)); for (const g of grid.slice(0, times.length >= 4 ? 6 : 10)) times.push(g);
-      const cur = await frame(tc); if (!cur) continue; const refs = []; for (const tm of times) { const p = await frame(tm); if (p && p.w === cur.w && p.h === cur.h) refs.push(p); } if (refs.length < 4) { s.sideWhy = 'refs'; continue; }
+      const cur = await frame(tc); if (!cur) continue; let refs = []; const refT = []; for (const tm of times) { const p = await frame(tm); if (p && p.w === cur.w && p.h === cur.h) { refs.push(p); refT.push(Math.abs(tm - tc)); } } if (refs.length < 4) { s.sideWhy = 'refs'; continue; }
       const k = cur.w / cam.W, P = X => { const q = cam.project(X); return [q[0] * k, q[1] * k]; };
-      const fx = hm.feet[0], fy = hm.feet[1], ppm = I.ppm * k; if (!(ppm > 12)) { s.sideWhy = 'small'; continue; } // too small in the picture to tell trunk from arm
+      const fx = hm.feet[0], fy = hm.feet[1], ppm = I.ppm * k; if (!(ppm > 12 && I.ppm >= 80)) { s.sideWhy = 'small'; continue; } // too small in the picture to tell trunk from arm
       const top = P([fx, fy, 2.5]), bot = P([fx, fy, -0.2]), x0 = Math.max(0, Math.floor(top[0] - 2.4 * ppm)), x1 = Math.min(cur.w, Math.ceil(top[0] + 2.4 * ppm)), y0 = Math.max(0, Math.floor(Math.min(top[1], bot[1]))), y1 = Math.min(cur.h, Math.ceil(Math.max(top[1], bot[1])));
       const w = x1 - x0, h = y1 - y0; if (w < 20 || h < 20) continue;
       // cut-out: pixels that differ from the median of the other moments, in brightness or in colour
-      const n = refs.length, buf = new Uint8Array(n), off = refs.map(r => { const q = slide(cur, r); return q[1] * cur.w + q[0]; }), N = cur.w * cur.h, bg = new Uint8Array(w * h), dif = new Float32Array(w * h), m = new Uint8Array(w * h);
+      let n = refs.length, lab, m2, comps, best = null; const allRefs = refs, ex = P([fx, fy, 1])[0] - x0;
+      for (let pass = 0; pass < 2 && !best; pass++) { if (pass) { if (allRefs.length < 7) break; const ord = refT.map((d, q) => [d, q]).sort((a, b) => a[0] - b[0]).slice(0, 5); refs = ord.map(q => allRefs[q[1]]); n = refs.length; } // nobody found: sun and shadow have moved too much over the longer stretch; try again with only the moments closest in time
+      const buf = new Uint8Array(n), off = refs.map(r => { const q = slide(cur, r); return q[1] * cur.w + q[0]; }), N = cur.w * cur.h, bg = new Uint8Array(w * h), dif = new Float32Array(w * h), m = new Uint8Array(w * h);
       // a phone camera keeps adjusting exposure and colour balance: bring every other picture to this one's level over the patch before comparing (the usual difference per plane, which the hitter, a small part of the patch, hardly moves)
       const lev = refs.map((r, ri) => ['a', 'b', 'c'].map(pl => { const hst = new Int32Array(511); let cnt = 0; for (let y = 0; y < h; y += 3) for (let x = 0; x < w; x += 3) { const o = (y + y0) * cur.w + x + x0, q = o + off[ri]; hst[cur[pl][o] - r[pl][q < 0 ? 0 : q >= N ? N - 1 : q] + 255]++; cnt++; } let acc = 0; for (let v = 0; v < 511; v++) { acc += hst[v]; if (acc >= cnt / 2) return v - 255; } return 0; }));
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = (y + y0) * cur.w + x + x0, q0 = y * w + x; let dY = 0, dC = 0;
@@ -58,18 +60,17 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       // next to a sharp edge of the background (a court line) half a pixel of sway already makes a difference: ask for more there
       for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const o = y * w + x, gr = Math.max(Math.abs(bg[o + 1] - bg[o - 1]), Math.abs(bg[o + w] - bg[o - w])); if (dif[o] > 24 + 0.6 * gr) m[o] = 1; }
       // close one-pixel gaps, drop thin leftovers (line edges, net cords), then connected pieces
-      const m2 = new Uint8Array(w * h); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const o = y * w + x; if (m[o]) { m2[o] = 1; continue; } let c = 0; if (m[o - 1]) c++; if (m[o + 1]) c++; if (m[o - w]) c++; if (m[o + w]) c++; if (c >= 2) m2[o] = 1; }
+      m2 = new Uint8Array(w * h); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const o = y * w + x; if (m[o]) { m2[o] = 1; continue; } let c = 0; if (m[o - 1]) c++; if (m[o + 1]) c++; if (m[o - w]) c++; if (m[o + w]) c++; if (c >= 2) m2[o] = 1; }
       { const er = new Uint8Array(w * h); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const o = y * w + x; if (m2[o] && m2[o - 1] && m2[o + 1] && m2[o - w] && m2[o + w]) er[o] = 1; }
         m2.fill(0); for (let y = 1; y < h - 1; y++) for (let x = 1; x < w - 1; x++) { const o = y * w + x; if (er[o] || er[o - 1] || er[o + 1] || er[o - w] || er[o + w]) m2[o] = 1; } }
-      const lab = new Int32Array(w * h), comps = [], stack = [];
+      lab = new Int32Array(w * h); comps = []; const stack = [];
       for (let q = 0; q < w * h; q++) { if (!m2[q] || lab[q]) continue; const id = comps.length + 1, c = { id, n: 0, x0: w, x1: 0, y0: h, y1: 0 }; lab[q] = id; stack.push(q);
         while (stack.length) { const o = stack.pop(), x = o % w, y = (o / w) | 0; c.n++; if (x < c.x0) c.x0 = x; if (x > c.x1) c.x1 = x; if (y < c.y0) c.y0 = y; if (y > c.y1) c.y1 = y;
           for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue; const r = yy * w + xx; if (m2[r] && !lab[r]) { lab[r] = id; stack.push(r); } } }
         comps.push(c); }
       // the hitter: a piece the size and shape of a person, close to where the flight says the hit was, and whole (not cut by the edge of the picture at the sides or the top)
-      const ex = P([fx, fy, 1])[0] - x0; let best = null;
       for (const c of comps) { const ch = c.y1 - c.y0 + 1, cw = c.x1 - c.x0 + 1, cutBottom = c.y1 + y0 >= cur.h - 3; if (ch < (cutBottom ? 0.45 : 0.8) * ppm || ch > 2.9 * ppm || cw > 2.4 * ppm || cw > 1.6 * ch || c.n < 0.08 * ppm * ppm || c.n > 1.7 * ppm * ppm || c.n < 0.18 * cw * ch) continue;
-        if (c.y0 + y0 <= 2) continue; const dist = Math.max(0, c.x0 - ex, ex - c.x1) / ppm; if (dist > 1.6) continue; const score = c.n / (1 + dist); if (!best || score > best.score) best = { ...c, score }; }
+        if (c.y0 + y0 <= 2) continue; const dist = Math.max(0, c.x0 - ex, ex - c.x1) / ppm; if (dist > 1.6) continue; const score = c.n / (1 + dist); if (!best || score > best.score) best = { ...c, score }; } }
       if (!best) { s.sideWhy = 'nobody'; if (debug) debug(s, { cur, x0, y0, w, h, m: m2, lab, ppm, hm, k, none: true, refs: n, hits: Math.min(5, others.length), comps }); continue; }
       // trunk: the densest part of the band from the shoulders to the hips (an arm and a racket add little there)
       const pm = Math.min(ppm, (best.y1 - best.y0 + 1) / 1.6); // metres in the picture at the hitter: the flight's depth can be well off, a person's height is not
