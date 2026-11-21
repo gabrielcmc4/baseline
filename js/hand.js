@@ -25,6 +25,7 @@ const at = (s, tau) => [s.p0[0] + s.v0[0] * tau, s.p0[1] + s.v0[1] * tau, s.p0[2
 export function hitMoment(s, cam, yOff = 1.25) { const dir = s.v0[1] >= 0 ? 1 : -1, REACH = 0.5, HIT = 0.7;
   const hasFeet = s.feetY != null && isFinite(s.feetY) && Math.abs(s.p0[1] - s.feetY) < 6, feet = hasFeet ? s.feetY : s.p0[1] - dir * yOff, yHit = feet + dir * REACH;
   let tau = 0; for (let k = 0; k <= 70; k++) { const tt = -k * 0.005, b = at(s, tt), v = cam.project(b)[1], vc = cam.project([b[0], yHit, HIT])[1]; tau = tt; if (v >= vc) break; }
+  tau = Math.max(-0.4, tau - 0.07); // checked on film strips of real strokes: the height rule alone lands about seven hundredths of a second after the hit
   const ball = at(s, tau); return { tau, ball, feet: [ball[0], feet] }; }
 
 export async function strokeSides(shots, cam, grab, { duration = Infinity, step = 15, yOff = 1.25, onProgress, signal, debug } = {}) {
@@ -48,8 +49,10 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       const w = x1 - x0, h = y1 - y0; if (w < 20 || h < 20) continue;
       // cut-out: pixels that differ from the median of the other moments, in brightness or in colour
       const n = refs.length, buf = new Uint8Array(n), off = refs.map(r => { const q = slide(cur, r); return q[1] * cur.w + q[0]; }), N = cur.w * cur.h, bg = new Uint8Array(w * h), dif = new Float32Array(w * h), m = new Uint8Array(w * h);
+      // a phone camera keeps adjusting exposure and colour balance: bring every other picture to this one's level over the patch before comparing (the usual difference per plane, which the hitter, a small part of the patch, hardly moves)
+      const lev = refs.map((r, ri) => ['a', 'b', 'c'].map(pl => { const hst = new Int32Array(511); let cnt = 0; for (let y = 0; y < h; y += 3) for (let x = 0; x < w; x += 3) { const o = (y + y0) * cur.w + x + x0, q = o + off[ri]; hst[cur[pl][o] - r[pl][q < 0 ? 0 : q >= N ? N - 1 : q] + 255]++; cnt++; } let acc = 0; for (let v = 0; v < 511; v++) { acc += hst[v]; if (acc >= cnt / 2) return v - 255; } return 0; }));
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = (y + y0) * cur.w + x + x0, q0 = y * w + x; let dY = 0, dC = 0;
-        for (const pl of ['a', 'b', 'c']) { for (let r = 0; r < n; r++) { const q = o + off[r]; buf[r] = refs[r][pl][q < 0 ? 0 : q >= N ? N - 1 : q]; } const md = median(buf, n), d = cur[pl][o] - md; if (pl === 'a') { bg[q0] = md; dY = d; } else if (Math.abs(d) > dC) dC = Math.abs(d); }
+        for (let pi = 0; pi < 3; pi++) { const pl = 'abc'[pi]; for (let r = 0; r < n; r++) { const q = o + off[r], v = refs[r][pl][q < 0 ? 0 : q >= N ? N - 1 : q] + lev[r][pi]; buf[r] = v < 0 ? 0 : v > 255 ? 255 : v; } const md = median(buf, n), d = cur[pl][o] - md; if (pl === 'a') { bg[q0] = md; dY = d; } else if (Math.abs(d) > dC) dC = Math.abs(d); }
         // light and shadow change how bright the ground is, not its colour: the hitter's own shadow, tree shadows and sun patches that have moved since are not the hitter
         const light = dC < 7 && cur.a[o] > 0.4 * bg[q0] && cur.a[o] < 2.2 * bg[q0] + 8; dif[q0] = light ? 0 : Math.max(Math.abs(dY), 2.5 * dC); }
       // next to a sharp edge of the background (a court line) half a pixel of sway already makes a difference: ask for more there
