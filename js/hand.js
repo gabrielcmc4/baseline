@@ -37,7 +37,7 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
   for (let i = 0; i < list.length; i++) { const s = list[i], I = info[i], hm = I.hm, tc = I.tc; if (signal && signal.aborted) return; s.side = ''; s.sideM = null;
     try {
       // The same place at other moments. Best are the pictures of other strokes hit from somewhere else: there the hitter is known not to stand here. A player waits at the same spot between points, so pictures taken at fixed times alone can all show him there and the comparison finds nothing.
-      const others = []; for (let j = 0; j < list.length; j++) { if (j === i) continue; const J = info[j], dt = Math.abs(J.tc - tc); if (dt < 1 || dt > 90) continue; // not long before or after: sunlight and shadows creep across the court if (Math.abs(J.u - I.u) < 1.6 * (I.ppm + J.ppm) && Math.abs(J.v - I.v) < 1.6 * (I.ppm + J.ppm)) continue; others.push([dt, J.tc]); }
+      const others = []; for (let j = 0; j < list.length; j++) { if (j === i) continue; const J = info[j], dt = Math.abs(J.tc - tc); if (dt < 1 || dt > 90) continue; /* not long before or after: sunlight and shadows creep across the court */ if (Math.abs(J.u - I.u) < 1.6 * (I.ppm + J.ppm) && Math.abs(J.v - I.v) < 1.6 * (I.ppm + J.ppm)) continue; others.push([dt, J.tc]); }
       others.sort((a, b) => a[0] - b[0]); const times = others.slice(0, 5).map(q => q[1]);
       const g0 = Math.round(tc / step) * step, far = Math.min(4, 1.5 * step), grid = []; for (let j = -6; j <= 6; j++) { const g = g0 + j * step; if (g >= 0.5 && g <= duration - 0.5 && Math.abs(g - tc) >= far) grid.push(g); }
       grid.sort((a, b) => Math.abs(a - tc) - Math.abs(b - tc)); for (const g of grid.slice(0, times.length >= 4 ? 6 : 10)) times.push(g);
