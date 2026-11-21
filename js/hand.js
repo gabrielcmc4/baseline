@@ -25,8 +25,8 @@ const at = (s, tau) => [s.p0[0] + s.v0[0] * tau, s.p0[1] + s.v0[1] * tau, s.p0[2
 export function hitMoment(s, cam, yOff = 1.25) { const dir = s.v0[1] >= 0 ? 1 : -1, REACH = 0.5, HIT = 0.7;
   const hasFeet = s.feetY != null && isFinite(s.feetY) && Math.abs(s.p0[1] - s.feetY) < 6, feet = hasFeet ? s.feetY : s.p0[1] - dir * yOff, yHit = feet + dir * REACH;
   let tau = 0; for (let k = 0; k <= 70; k++) { const tt = -k * 0.005, b = at(s, tt), v = cam.project(b)[1], vc = cam.project([b[0], yHit, HIT])[1]; tau = tt; if (v >= vc) break; }
-  tau = Math.max(-0.4, tau - 0.07); // checked on film strips of real strokes: the height rule alone lands about seven hundredths of a second after the hit
-  const ball = at(s, tau); return { tau, ball, feet: [ball[0], feet] }; }
+  // Checked on film strips of real strokes: the height rule lands on the hit or up to a tenth of a second after it. Both ends of that span are kept (ball, ballEarly); the picture is taken in between.
+  const early = Math.max(-0.45, tau - 0.08), ball = at(s, tau); return { tau, early, look: (tau + early) / 2, ball, ballEarly: at(s, early), feet: [ball[0], feet] }; }
 
 export async function strokeSides(shots, cam, grab, { duration = Infinity, step = 15, yOff = 1.25, onProgress, signal, debug } = {}) {
   if (isFinite(duration)) step = Math.max(2, Math.min(step, duration / 10)); // a short clip: take the other moments closer together
@@ -34,7 +34,7 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
   // pictures already taken, newest kept: the same ones serve several strokes
   const bank = new Map(), KEEP = 44, frame = async t => { const key = Math.round(t * 1000); let p = bank.get(key); if (p !== undefined) { bank.delete(key); bank.set(key, p); return p; } const im = await grab(t); p = im ? planes(im) : null; bank.set(key, p); if (bank.size > KEEP) bank.delete(bank.keys().next().value); return p; };
   // where each stroke's hitter is expected in the picture (working-size pixels): the flight run back to the hit
-  const info = list.map(s => { const hm = hitMoment(s, cam, yOff), fx = hm.feet[0], fy = hm.feet[1], c = cam.project([fx, fy, 1]), ppm = Math.abs(cam.project([fx + 0.5, fy, 1])[0] - cam.project([fx - 0.5, fy, 1])[0]); return { hm, tc: Math.max(0, s.t + hm.tau), u: c[0], v: c[1], ppm }; });
+  const info = list.map(s => { const hm = hitMoment(s, cam, yOff), fx = hm.feet[0], fy = hm.feet[1], c = cam.project([fx, fy, 1]), ppm = Math.abs(cam.project([fx + 0.5, fy, 1])[0] - cam.project([fx - 0.5, fy, 1])[0]); return { hm, tc: Math.max(0, s.t + hm.look), u: c[0], v: c[1], ppm }; });
   for (let i = 0; i < list.length; i++) { const s = list[i], I = info[i], hm = I.hm, tc = I.tc; if (signal && signal.aborted) return; s.side = ''; s.sideM = null;
     try {
       // The same place at other moments. Best are the pictures of other strokes hit from somewhere else: there the hitter is known not to stand here. A player waits at the same spot between points, so pictures taken at fixed times alone can all show him there and the comparison finds nothing.
@@ -42,9 +42,9 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       others.sort((a, b) => a[0] - b[0]); const times = others.slice(0, 5).map(q => q[1]);
       const g0 = Math.round(tc / step) * step, far = Math.min(4, 1.5 * step), grid = []; for (let j = -6; j <= 6; j++) { const g = g0 + j * step; if (g >= 0.5 && g <= duration - 0.5 && Math.abs(g - tc) >= far) grid.push(g); }
       grid.sort((a, b) => Math.abs(a - tc) - Math.abs(b - tc)); for (const g of grid.slice(0, times.length >= 4 ? 6 : 10)) times.push(g);
-      const cur = await frame(tc); if (!cur) continue; const refs = []; for (const tm of times) { const p = await frame(tm); if (p && p.w === cur.w && p.h === cur.h) refs.push(p); } if (refs.length < 4) continue;
+      const cur = await frame(tc); if (!cur) continue; const refs = []; for (const tm of times) { const p = await frame(tm); if (p && p.w === cur.w && p.h === cur.h) refs.push(p); } if (refs.length < 4) { s.sideWhy = 'refs'; continue; }
       const k = cur.w / cam.W, P = X => { const q = cam.project(X); return [q[0] * k, q[1] * k]; };
-      const fx = hm.feet[0], fy = hm.feet[1], ppm = I.ppm * k; if (!(ppm > 12)) continue; // too small in the picture to tell trunk from arm
+      const fx = hm.feet[0], fy = hm.feet[1], ppm = I.ppm * k; if (!(ppm > 12)) { s.sideWhy = 'small'; continue; } // too small in the picture to tell trunk from arm
       const top = P([fx, fy, 2.5]), bot = P([fx, fy, -0.2]), x0 = Math.max(0, Math.floor(top[0] - 2.4 * ppm)), x1 = Math.min(cur.w, Math.ceil(top[0] + 2.4 * ppm)), y0 = Math.max(0, Math.floor(Math.min(top[1], bot[1]))), y1 = Math.min(cur.h, Math.ceil(Math.max(top[1], bot[1])));
       const w = x1 - x0, h = y1 - y0; if (w < 20 || h < 20) continue;
       // cut-out: pixels that differ from the median of the other moments, in brightness or in colour
@@ -70,19 +70,20 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       const ex = P([fx, fy, 1])[0] - x0; let best = null;
       for (const c of comps) { const ch = c.y1 - c.y0 + 1, cw = c.x1 - c.x0 + 1, cutBottom = c.y1 + y0 >= cur.h - 3; if (ch < (cutBottom ? 0.45 : 0.8) * ppm || ch > 2.9 * ppm || cw > 2.4 * ppm || cw > 1.6 * ch || c.n < 0.08 * ppm * ppm || c.n > 1.7 * ppm * ppm || c.n < 0.18 * cw * ch) continue;
         if (c.y0 + y0 <= 2) continue; const dist = Math.max(0, c.x0 - ex, ex - c.x1) / ppm; if (dist > 1.6) continue; const score = c.n / (1 + dist); if (!best || score > best.score) best = { ...c, score }; }
-      if (!best) { if (debug) debug(s, { cur, x0, y0, w, h, m: m2, lab, ppm, hm, k, none: true, refs: n, hits: Math.min(5, others.length), comps }); continue; }
+      if (!best) { s.sideWhy = 'nobody'; if (debug) debug(s, { cur, x0, y0, w, h, m: m2, lab, ppm, hm, k, none: true, refs: n, hits: Math.min(5, others.length), comps }); continue; }
       // trunk: the densest part of the band from the shoulders to the hips (an arm and a racket add little there)
       const pm = Math.min(ppm, (best.y1 - best.y0 + 1) / 1.6); // metres in the picture at the hitter: the flight's depth can be well off, a person's height is not
       const hp = Math.min(best.y1 - best.y0 + 1, 1.9 * ppm), r0 = Math.round(best.y0 + 0.28 * hp), r1 = Math.round(best.y0 + 0.62 * hp), hist = new Float64Array(w); let tot = 0;
       for (let y = r0; y <= r1 && y < h; y++) for (let x = best.x0; x <= best.x1; x++) if (lab[y * w + x] === best.id) { hist[x]++; tot++; }
-      if (tot < 0.03 * pm * pm) continue;
-      { let lo = w, hi = -1; for (let x = best.x0; x <= best.x1; x++) if (hist[x] > 0) { if (x < lo) lo = x; hi = x; } if (lo + x0 <= 2 || hi + x0 >= cur.w - 3) continue; } // the trunk itself runs out of the picture: its middle cannot be found
+      if (tot < 0.03 * pm * pm) { s.sideWhy = 'thin'; continue; }
       const wmed = (a, b) => { let t2 = 0; for (let x = a; x <= b; x++) t2 += hist[x]; let acc = 0; for (let x = a; x <= b; x++) { acc += hist[x]; if (acc >= t2 / 2) return x; } return (a + b) >> 1; };
       let tx = wmed(best.x0, best.x1); tx = wmed(Math.max(best.x0, Math.round(tx - 0.35 * pm)), Math.min(best.x1, Math.round(tx + 0.35 * pm)));
-      const bu = P(hm.ball)[0] - x0, dI = (bu - tx) / pm;
+      if (tx + x0 - 0.3 * pm <= 2 || tx + x0 + 0.3 * pm >= cur.w - 3) { s.sideWhy = 'edge'; continue; } // the trunk itself runs out of the picture: its middle cannot be found
       // A camera straight behind the hitter sees "beside the body" as left and right in the picture. A camera at a corner looks across the court: there a ball met in front of the body (as every stroke is, by about half a metre) also shows to one side. Take that share out and scale back to metres across the court.
-      const vx = fx - cam.C[0], vy = fy - cam.C[1], vn = Math.hypot(vx, vy) || 1, sin = vx / vn, cos = vy / vn, dM = cos > 0.5 ? (dI + 0.5 * sin) / cos : 0;
-      s.sideM = +dM.toFixed(2); s.side = Math.abs(dM) >= 0.22 && Math.abs(dM) < 2.2 ? (dM > 0 ? 'R' : 'L') : '';
+      const vx = fx - cam.C[0], vy = fy - cam.C[1], vn = Math.hypot(vx, vy) || 1, sin = vx / vn, cos = vy / vn, across = b3 => cos > 0.5 ? ((P(b3)[0] - x0 - tx) / pm + 0.5 * sin) / cos : 0;
+      // The side must be the same at both ends of the span in which the hit happened: a ball hit across the body is on the other side of it a moment later, and such a stroke is better left open than named wrongly.
+      const d1 = across(hm.ball), d2 = across(hm.ballEarly), dM = Math.abs(d1) < Math.abs(d2) ? d1 : d2, bu = P(hm.ball)[0] - x0;
+      s.sideM = +dM.toFixed(2); s.side = d1 * d2 > 0 && Math.abs(dM) >= 0.22 && Math.abs(dM) < 2.2 ? (dM > 0 ? 'R' : 'L') : ''; if (!s.side) s.sideWhy = d1 * d2 <= 0 ? 'crosses' : Math.abs(dM) < 0.22 ? 'close' : 'far'; s.sideD = [+d1.toFixed(2), +d2.toFixed(2)];
       if (debug) debug(s, { cur, x0, y0, w, h, m: m2, lab, best, tx, bu, bv: P(hm.ball)[1] - y0, ppm, pm, hm, k, r0, r1, refs: n, hits: Math.min(5, others.length) });
     } catch (e) { if (debug) console.error(e); }
     finally { if (onProgress) onProgress((i + 1) / list.length); } }
