@@ -87,6 +87,12 @@ async function sides(onP) { try { if (S.sideKey !== S.framesKey) { S.sideKey = S
     await strokeSides(todo, S.cal.cam, sideGrabber(), { duration: S.info.duration, yOff: (S.meta && S.meta.yOff) || 1.25, onProgress: onP, signal: S.abort ? S.abort.signal : null });
     for (const q of todo) if (q.side !== undefined) S.sideCache.set(id(q), [q.side, q.sideM]); crumb('sides ' + todo.length + ' strokes, ' + todo.filter(q => q.side).length + ' told, ' + Math.round((performance.now() - t0) / 1000) + 's');
   } catch (e) { console.error(e); crumb('sides failed ' + (e && e.message)); } }
+// ---- demonstration: a real analysed session shipped with the site, for a visitor without a video
+async function openDemo() { const b = $('demoBtn'); b.disabled = true; $('err1').hidden = true;
+  try { const r = await fetch(new URL('../demo/match.json', import.meta.url)); if (!r.ok) throw new Error('http ' + r.status); const s = await r.json();
+    S.shots = unpack(s.shots); S.meta = s.meta || null; S.mode = 'match'; S.fromHistory = true; S.demo = true; S.frames = null; S.file = null; S.filt = newFilt(); S.sel = null; S.view = 'me'; $('sdate').value = s.date || ''; step(4); renderReport(); crumb('demo opened');
+  } catch (e) { console.error(e); $('err1').textContent = t('demoFail'); $('err1').hidden = false; } b.disabled = false; }
+$('demoBtn').onclick = openDemo; $('demoOwn').onclick = () => { S.demo = false; S.fromHistory = false; S.shots = []; step(1); }; if (/[?#&]demo\b/.test(location.search + location.hash)) openDemo();
 async function changeMode(m, force) { if (!S.frames || (m === S.mode && !force)) return; const sel = $('modeSel'); sel.disabled = true; $('modeMsg').textContent = t('fitting'); const old = S.mode; S.mode = m;
   try { S.shots = await fit(null); crumb('mode ' + m + ' shots ' + S.shots.length); $('modeMsg').textContent = t('siding'); await sides(); S.filt = newFilt(); S.sel = null; S.view = 'me'; S.saved = false; window.__baseline = { ...(window.__baseline || {}), shots: S.shots, meta: S.meta }; renderReport(); if (currentUser() && !window.__baselineNoSave) save(); } catch (e) { console.error(e); S.mode = old; sel.value = old; }
   sel.disabled = false; $('modeMsg').textContent = ''; }
@@ -121,7 +127,7 @@ async function run() { crumb('run mode ' + S.mode); step(3); $('bar').style.widt
     S.frames = frames; S.framesKey = key; S.shots = await fit(bar);
     $('stage').textContent = t('siding'); await sides(p => { $('eta').textContent = Math.round(100 * p) + '%'; }); $('eta').textContent = ''; if (S.abort.signal.aborted) return;
     window.__baseline = { shots: S.shots, meta: S.meta, frames: frames.length, seconds: (performance.now() - start) / 1000, fast: r.fast, cam: { p: Array.from(cam.p), W, H } };
-    crumb('shots ' + S.shots.length); S.filt = newFilt(); S.sel = null; S.view = 'me'; S.saved = false; S.fromHistory = false; S.sid = sessionId(S.file); $('sdate').value = fileDate(S.file); step(4); renderReport(); if (currentUser() && !window.__baselineNoSave) save();
+    crumb('shots ' + S.shots.length); S.filt = newFilt(); S.sel = null; S.view = 'me'; S.saved = false; S.fromHistory = false; S.demo = false; S.sid = sessionId(S.file); $('sdate').value = fileDate(S.file); step(4); renderReport(); if (currentUser() && !window.__baselineNoSave) save();
   } catch (e) { if (e.message === 'aborted') return; console.error(e); crumb('error ' + e.message); step(2); const m = $('calMsg'); m.className = 'msg bad'; m.textContent = t('errAnalyze', { e: e.message || '?' }); }
 }
 
@@ -167,7 +173,7 @@ $('trimGo').onclick = async () => { const msg = $('trimMsg'), dl = $('trimDl'), 
     dl.href = S.trimUrl; dl.download = (S.file.name || 'video').replace(/\.[^.]+$/, '') + ' - baseline.mp4'; dl.textContent = t('trimDone', { mb: num(r.blob.size / 1e6, 0), dur: fmtTime(r.seconds) }); dl.hidden = false; msg.textContent = t('trimInfo', { n: r.segments }); msg.classList.add('good'); crumb('trim ' + r.segments + ' clips ' + Math.round(r.seconds) + 's ' + Math.round(r.blob.size / 1e6) + 'MB'); window.__baselineTrim = r; }
   catch (e) { console.error(e); crumb('trim failed ' + e.message); msg.textContent = t('trimFail'); msg.classList.add('bad'); }
   $('trimGo').disabled = false; };
-function renderReport(keep) { if (keep !== true) { renderMode(); renderWho(); renderTrim(); } const all = base(), stats = $('stats'); renderFilters(all, keep === true); const sh = vis(); stats.innerHTML = ''; updateSavebar();
+function renderReport(keep) { if (keep !== true) { renderMode(); renderWho(); renderTrim(); } const all = base(), stats = $('stats'); $('demoBar').hidden = !S.demo; renderFilters(all, keep === true); const sh = vis(); stats.innerHTML = ''; updateSavebar();
   const hn = $('accHand'); hn.hidden = !all.some(q => q.side); hn.textContent = hn.hidden ? '' : t('handNote');
   if (!sh.length) { stats.innerHTML = `<div><span>${t(all.length ? 'filtNone' : 'noShots')}</span></div>`; $('top').innerHTML = $('side').innerHTML = $('tbl').innerHTML = $('sel').innerHTML = $('legend').innerHTML = ''; syncPick(); return; }
   const nIn = sh.filter(s => s.result === 'in').length, over = sh.filter(s => s.result !== 'net');
@@ -202,12 +208,12 @@ function renderSel(play) { const box = $('sel'); if (S.sel == null) { box.innerH
 $('csv').onclick = () => { const rows = [['time_s', 'player', 'side', 'type', 'stroke', 'result', 'speed_kmh', 'net_clearance_m', 'spin_rpm', 'spin_sd_rpm', 'land_x_m', 'land_y_m', 'land_y_sd_m', 'hit_x_m', 'hit_y_m', 'hit_z_m']];
   for (const s of S.shots) rows.push([s.t.toFixed(2), s.who || 'me', s.far ? 'far' : 'near', s.serve ? 'serve' : 'stroke', s.serve ? '' : ({ fh: 'forehand', bh: 'backhand' })[strokeName(s, S.left)] || '', s.result, s.speed.toFixed(1), s.net ? s.clear.toFixed(2) : '', s.rpm.toFixed(0), s.rpmSd.toFixed(0), s.land[0].toFixed(2), s.land[1].toFixed(2), s.landSd[1].toFixed(2), ...s.p0.map(v => v.toFixed(2))]);
   const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([rows.map(r => r.join(',')).join('\n')], { type: 'text/csv' })); a.download = 'baseline-shots.csv'; a.click(); };
-$('print').onclick = () => window.print(); $('again').onclick = () => { if (S.url) URL.revokeObjectURL(S.url); S.url = null; S.shots = []; S.fromHistory = false; $('file').value = ''; step(1); };
+$('print').onclick = () => window.print(); $('again').onclick = () => { if (S.url) URL.revokeObjectURL(S.url); S.url = null; S.shots = []; S.fromHistory = false; S.demo = false; $('file').value = ''; step(1); };
 // ---- accounts, saving and history
 const fileDate = f => { const d = new Date(f.lastModified || Date.now()); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 const sessionId = f => { let h = 2166136261; for (const ch of `${f.name}|${f.size}|${f.lastModified}`) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619); } return 'v' + (h >>> 0).toString(36) + f.size.toString(36); };
 function updateAcct() { const on = S.cloud, u = currentUser(); $('acct').hidden = !on; if (!on) return; $('signIn').hidden = !!u; $('signOut').hidden = !u; $('histBtn').hidden = !u; $('who').hidden = !u; $('who').textContent = u ? u.name : ''; }
-function updateSavebar() { const bar = $('savebar'), u = currentUser(), msg = $('saveMsg'); bar.hidden = !S.cloud || S.fromHistory && !u || !S.shots.length; if (bar.hidden) return; $('sdate').disabled = !!S.fromHistory;
+function updateSavebar() { const bar = $('savebar'), u = currentUser(), msg = $('saveMsg'); bar.hidden = !S.cloud || S.demo || S.fromHistory && !u || !S.shots.length; if (bar.hidden) return; $('sdate').disabled = !!S.fromHistory;
   if (S.fromHistory) { msg.textContent = t('fromHistory'); $('saveBtn').hidden = true; } else if (!u) { msg.textContent = t('signToSave'); $('saveBtn').hidden = true; } else if (S.saved) { msg.textContent = t('saved'); $('saveBtn').hidden = true; } else { msg.textContent = S.saveErr || ''; $('saveBtn').hidden = false; } }
 async function save() { if (!currentUser() || !S.shots.length || S.fromHistory) return; $('saveMsg').textContent = t('saving'); $('saveBtn').hidden = true;
   try { const date = /^\d{4}-\d{2}-\d{2}$/.test($('sdate').value) ? $('sdate').value : fileDate(S.file);
@@ -220,7 +226,7 @@ $('signOut').onclick = async () => { await signOut(); if (!$('s5').hidden) step(
 async function showHistory() { for (let i = 1; i <= 4; i++) { $('s' + i).hidden = true; document.querySelector(`.steps li[data-step="${i}"]`).classList.remove('on'); } $('s5').hidden = false; document.body.classList.add('working'); window.scrollTo(0, 0);
   let list = []; try { list = await listSessions(); } catch (e) { console.error(e); } S.sessions = list; $('histEmpty').hidden = list.length > 0; $('dangerBox').hidden = !list.length; $('progress').hidden = !list.length;
   if (list.length) renderProgress($('progress'), $('progText'), $('trend'), list);
-  renderSessions($('sessions'), list, s => { S.shots = unpack(s.shots); S.meta = s.meta || null; S.mode = ['coach', 'serve', 'match'].includes(s.mode) ? s.mode : 'coach'; S.fromHistory = true; S.filt = newFilt(); S.sel = null; S.view = 'me'; $('sdate').value = /^\d{4}-\d{2}-\d{2}$/.test(s.date) ? s.date : ''; step(4); renderReport(); },
+  renderSessions($('sessions'), list, s => { S.shots = unpack(s.shots); S.meta = s.meta || null; S.mode = ['coach', 'serve', 'match'].includes(s.mode) ? s.mode : 'coach'; S.fromHistory = true; S.demo = false; S.filt = newFilt(); S.sel = null; S.view = 'me'; $('sdate').value = /^\d{4}-\d{2}-\d{2}$/.test(s.date) ? s.date : ''; step(4); renderReport(); },
     async s => { try { await removeSession(s.id); } catch (e) { console.error(e); } showHistory(); }); }
 $('histBtn').onclick = showHistory; $('newFromHist').onclick = () => step(1);
 $('delAll').onclick = () => { $('delAll').hidden = true; $('delAllYes').hidden = $('delAllNo').hidden = false; };

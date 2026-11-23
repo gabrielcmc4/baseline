@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Baseline — por trás das cenas</title>
+<meta name="description" content="How Baseline measures tennis shots from one phone video, in the browser, without a neural network.">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data:; style-src 'self'; font-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232B1D15'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23CBE33A'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="doc">
+<header class="top">
+  <a class="mark" href="./" aria-label="Baseline"><span class="ball" aria-hidden="true"></span>Baseline</a>
+  <span class="tag"><span data-l="pt">Por trás das cenas</span><span data-l="en" hidden>Behind the scenes</span></span>
+  <div class="lang" role="group" aria-label="Idioma / Language"><button data-lang="pt">PT</button><button data-lang="en">EN</button></div>
+</header>
+
+<main class="how">
+<!-- ======================= PORTUGUÊS ======================= -->
+<article data-l="pt">
+  <h1>Como um vídeo de celular vira velocidade, efeito e ponto de queda</h1>
+  <p class="lede">O Baseline não usa rede neural e não manda nada para servidor. É geometria, física e muita comparação de imagens, rodando no seu navegador. Esta página conta o que acontece entre você escolher o vídeo e a tabela de golpes aparecer.</p>
+  <p><a class="btn" href="./">Voltar ao Baseline</a> <a class="btn" href="./?demo">Ver a demonstração</a></p>
+
+  <h2>O caminho de um vídeo</h2>
+  <ol class="pipe">
+    <li><h3>Ler o vídeo, quadro a quadro</h3>
+      <p>O arquivo é aberto por um leitor de MP4/MOV escrito para o projeto, que entrega cada imagem comprimida ao decodificador do próprio navegador (WebCodecs, o mesmo que toca vídeo com a placa de vídeo). As imagens são reduzidas para 1600 px e analisadas em até quatro processos paralelos.</p>
+      <p class="aside">Um detalhe que custou caro: celulares gravam em pedaços e guardam imagens "de aquecimento" que nenhum player mostra. Um jogo de 20 minutos do Gabriel tinha 75 segundos delas, e os horários dos golpes saíam mais de um minuto adiantados. Hoje o leitor segue a lista de edição do arquivo e usa o relógio do player.</p></li>
+    <li><h3>Achar a quadra e descobrir onde está a câmera</h3>
+      <p>Pixels claros e finos viram segmentos, segmentos viram linhas, e um modelo da quadra com medidas oficiais é encaixado nelas, junto com a distorção da lente e a fita da rede. Daí sai onde a câmera está (altura, distância atrás da linha de fundo) e uma função que leva qualquer ponto 3D da quadra a um pixel da imagem.</p></li>
+    <li><h3>Achar a bola</h3>
+      <p>Cada imagem é comparada com as vizinhas: só conta o que mudou em relação a antes <em>e</em> depois, já compensando o balanço da câmera. Depois entra a cor (amarelo-esverdeado). Do outro lado da rede a bola tem poucos pixels e quase não se move na imagem; lá há uma segunda olhada que compara a faixa com um fundo atualizado devagar.</p></li>
+    <li><h3>Ligar os pontos e ajustar um voo em 3D</h3>
+      <p>Candidatos em imagens seguidas são ligados em trajetórias. Para cada uma, procura-se o voo físico (posição e velocidade iniciais, gravidade, arrasto do ar e a força do efeito) cuja projeção na imagem passa pelos pontos vistos. Desse voo saem a velocidade, a folga sobre a rede e o ponto de queda. O efeito vem da curvatura: topspin faz a bola cair antes do que a gravidade sozinha faria.</p></li>
+    <li><h3>Resolver a profundidade</h3>
+      <p>Com uma câmera só, "perto e devagar" e "longe e rápido" se parecem. Duas âncoras resolvem: bolas que morrem na rede (a rede tem posição conhecida) e quiques vistos do outro lado (no quique a bola está no chão). Quando o vídeo tem âncoras suficientes, elas calibram todos os outros golpes.</p></li>
+    <li><h3>Dar nome aos golpes</h3>
+      <p>Saque: bola que sobe quase na vertical (o lançamento) e logo depois sai rápido de cima. Rede: voo que termina na linha da rede sem que uma bola volte do outro lado. Forehand ou backhand: o jogador é recortado comparando a imagem com outros momentos do mesmo lugar, acha-se o meio do tronco, e o caminho da bola na imagem é seguido para trás até a altura do corpo. O lado em que ela cruza decide. Se não der para ter certeza, o golpe fica sem lado.</p></li>
+  </ol>
+
+  <h2>O que é de código aberto aqui</h2>
+  <p>Vale ser exato: o Baseline <strong>roda</strong> pouca coisa de terceiros, mas <strong>aprendeu</strong> com vários projetos abertos. Todos foram lidos no código-fonte; nenhum aplicativo comercial fechado foi desmontado.</p>
+  <div class="tablewrap"><table class="oss">
+    <thead><tr><th>Projeto</th><th>Como funciona</th><th>O que virou no Baseline</th></tr></thead>
+    <tbody>
+      <tr><td><b>mp4box.js</b><br><small>GPAC, licença BSD</small></td><td>Biblioteca que desmonta arquivos MP4 em JavaScript.</td><td>Vai junto com o site como leitor reserva, para arquivos em que o leitor próprio falha.</td></tr>
+      <tr><td><b>TrackNet</b><br><small>rede neural para achar a bola</small></td><td>Imagem entra, mapa de calor da bola sai. Treinada em transmissões de TV.</td><td>Rodada fora do site como juiz. Achou a bola onde o Baseline perdia, e isso provou que o limite era o detector, não o vídeo. Mas pesa 43 MB e levaria horas num navegador. Uma comparação com o fundo deu o mesmo resultado nesse teste por uma fração do custo, e foi isso que entrou.</td></tr>
+      <tr><td><b>tennis-court-detection</b><br><small>gchlebus, método de Farin (2003)</small></td><td>Pixels brancos → linhas → modelo da quadra.</td><td>Mesma família de método. O Baseline acrescenta distorção de lente, fita da rede e câmera baixa de celular (os projetos assumem câmera alta de TV).</td></tr>
+      <tr><td><b>TennisCourtDetector, TennisProject</b><br><small>yastrebksv</small></td><td>Rede neural de 14 pontos da quadra; classificador que acha o quique pelas quebras no caminho da bola.</td><td>A ideia da quebra é a mesma do teste "o caminho virou para cima". Confirmou a direção; nenhum código foi usado.</td></tr>
+      <tr><td><b>Artigos de voo 3D com uma câmera</b><br><small>TT3D, "Where is the ball", SynthNet</small></td><td>Todos prendem o voo no quique.</td><td>Virou a regra de âncora do passo 5.</td></tr>
+      <tr><td><b>Zig + WebAssembly</b></td><td>Compilador aberto; o navegador roda o resultado quase na velocidade nativa.</td><td>Os três laços mais pesados foram reescritos em C com instruções vetoriais: 5 kB que deixam a leitura cerca de duas vezes mais rápida, com resultado idêntico ao JavaScript.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>Como foi afinado</h2>
+  <p>O Baseline foi construído pelo Gabriel em conversa com o Claude, a IA da Anthropic: o Gabriel grava, testa, aponta o que está errado e decide o que importa; o Claude escreve e testa o código. Os ajustes vieram de vídeos, não de teoria:</p>
+  <ul class="tuned">
+    <li><b>Cinco vídeos do Gabriel</b>: duas aulas, um treino de saque, um jogo e uma aula filmada do canto da quadra. Cada um quebrou alguma coisa: a câmera de canto escondia a imagem inteira atrás de uma máscara; o vídeo a 60 quadros por segundo fazia a bola "sumir" entre imagens vizinhas.</li>
+    <li><b>22 vídeos da internet</b> (bancos de imagens, Wikimedia Commons, transmissões), para ver onde o programa erra feio: quadras duras, de grama e cobertas; câmera que se move (hoje ele avisa); vídeos que não são de tênis (ele recusa).</li>
+    <li><b>Correções que nasceram de uma frase</b>: "aquele golpe de 170 km/h não foi saque" virou a exigência do lançamento da bola. "As bolas na rede não estão boas" virou o teste de a bola voltar ou não do outro lado.</li>
+  </ul>
+
+  <h2>O que não acreditar</h2>
+  <ul class="tuned">
+    <li>Nada aqui foi conferido com radar ou com contagem manual completa. Os números são estimativas com margem de erro, e a página de resultados mostra a margem de cada vídeo.</li>
+    <li>O efeito é a medida mais frágil: compare medianas, não um golpe isolado.</li>
+    <li>Parte dos golpes não é encontrada, e bolas devolvidas entre os pontos às vezes contam como golpe.</li>
+  </ul>
+  <p>O código é aberto: <a href="https://github.com/gabrielcmc4/baseline">github.com/gabrielcmc4/baseline</a>.</p>
+</article>
+
+<!-- ======================= ENGLISH ======================= -->
+<article data-l="en" hidden>
+  <h1>How a phone video becomes speed, spin and a landing spot</h1>
+  <p class="lede">Baseline uses no neural network and sends nothing to a server. It is geometry, physics and a lot of picture comparison, running in your browser. This page tells what happens between picking the video and the shot table appearing.</p>
+  <p><a class="btn" href="./">Back to Baseline</a> <a class="btn" href="./?demo">See the demonstration</a></p>
+
+  <h2>The path of a video</h2>
+  <ol class="pipe">
+    <li><h3>Read the video, frame by frame</h3>
+      <p>The file is opened by an MP4/MOV reader written for the project, which hands each compressed picture to the browser's own decoder (WebCodecs, the one that plays video on the graphics chip). Pictures are scaled to 1600 px and analysed in up to four parallel workers.</p>
+      <p class="aside">One detail that cost a lot: phones record in chunks and keep "run-up" pictures that no player shows. A 20-minute match of Gabriel's had 75 seconds of them, and shot times came out more than a minute early. The reader now follows the file's edit list and uses the player's clock.</p></li>
+    <li><h3>Find the court and work out where the camera is</h3>
+      <p>Bright thin pixels become segments, segments become lines, and a court model with official measurements is fitted to them, together with lens distortion and the net tape. That gives the camera's place (height, distance behind the baseline) and a function taking any 3-D point of the court to a pixel.</p></li>
+    <li><h3>Find the ball</h3>
+      <p>Each picture is compared with its neighbours: only what changed against both before <em>and</em> after counts, with camera sway already compensated. Then colour (yellow-green). Beyond the net the ball is a few pixels and barely moves in the picture; there a second look compares the strip with a slowly updated background.</p></li>
+    <li><h3>Join the dots and fit a flight in 3-D</h3>
+      <p>Candidates in consecutive pictures are linked into tracks. For each, the physical flight (starting position and velocity, gravity, air drag and the force from spin) is found whose projection into the picture passes through the points seen. From that flight come speed, net clearance and landing spot. Spin comes from curvature: topspin brings the ball down sooner than gravity alone would.</p></li>
+    <li><h3>Settle the depth</h3>
+      <p>With one camera, "near and slow" and "far and fast" look alike. Two anchors settle it: balls that die in the net (its position is known) and bounces seen on the far side (at the bounce the ball is on the ground). When a video has enough anchors they calibrate every other shot.</p></li>
+    <li><h3>Name the shots</h3>
+      <p>Serve: a ball rising almost straight up (the toss) and then leaving fast from above. Net: a flight ending at the net's line with no ball coming back from the other side. Forehand or backhand: the player is cut out by comparing the picture with other moments of the same spot, the middle of the trunk is found, and the ball's path in the picture is followed backwards down to body height. The side on which it crosses decides. If that cannot be told with confidence, the stroke is left without a side.</p></li>
+  </ol>
+
+  <h2>What is open source here</h2>
+  <p>To be exact: Baseline <strong>runs</strong> little third-party code, but it <strong>learned</strong> from several open projects. All were read in source; no closed commercial app was taken apart.</p>
+  <div class="tablewrap"><table class="oss">
+    <thead><tr><th>Project</th><th>How it works</th><th>What it became in Baseline</th></tr></thead>
+    <tbody>
+      <tr><td><b>mp4box.js</b><br><small>GPAC, BSD licence</small></td><td>A library that takes MP4 files apart in JavaScript.</td><td>Ships with the site as the fallback reader, for files the project's own reader fails on.</td></tr>
+      <tr><td><b>TrackNet</b><br><small>neural net that finds the ball</small></td><td>Picture in, heat map of the ball out. Trained on TV broadcasts.</td><td>Run offline as a referee. It found the ball where Baseline lost it, which proved the limit was the detector, not the video. But it weighs 43 MB and would take hours in a browser. A background comparison matched it in that test at a fraction of the cost, and that is what went in.</td></tr>
+      <tr><td><b>tennis-court-detection</b><br><small>gchlebus, after Farin (2003)</small></td><td>White pixels → lines → court model.</td><td>Same family of method. Baseline adds lens distortion, the net tape and a low phone camera (the projects assume a high TV camera).</td></tr>
+      <tr><td><b>TennisCourtDetector, TennisProject</b><br><small>yastrebksv</small></td><td>A neural net for 14 court points; a classifier that finds the bounce from kinks in the ball's path.</td><td>The kink idea is the same as the "path turns back up" test. It confirmed the direction; no code was used.</td></tr>
+      <tr><td><b>Papers on 3-D flight from one camera</b><br><small>TT3D, "Where is the ball", SynthNet</small></td><td>All anchor the flight on the bounce.</td><td>Became the anchor rule of step 5.</td></tr>
+      <tr><td><b>Zig + WebAssembly</b></td><td>An open compiler; the browser runs the result at near-native speed.</td><td>The three heaviest loops were rewritten in C with vector instructions: 5 kB that make reading about twice as fast, with output identical to the JavaScript.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h2>How it was tuned</h2>
+  <p>Baseline was built by Gabriel in conversation with Claude, Anthropic's AI: Gabriel records, tests, points at what is wrong and decides what matters; Claude writes and tests the code. The adjustments came from videos, not theory:</p>
+  <ul class="tuned">
+    <li><b>Five of Gabriel's videos</b>: two lessons, a serve practice, a match and a lesson filmed from the corner of the court. Each one broke something: the corner camera hid the whole picture behind a mask; 60 frames per second made the ball "vanish" between neighbouring pictures.</li>
+    <li><b>22 videos from the internet</b> (stock footage, Wikimedia Commons, broadcasts), to see where the program fails badly: hard, grass and indoor courts; a moving camera (it now warns); videos that are not tennis (it refuses).</li>
+    <li><b>Fixes born from one sentence</b>: "that 170 km/h shot was not a serve" became the requirement of a ball toss. "Balls in the net are not working well" became the test of whether a ball comes back from the other side.</li>
+  </ul>
+
+  <h2>What not to believe</h2>
+  <ul class="tuned">
+    <li>Nothing here has been checked against radar or a full hand count. The numbers are estimates with a margin of error, and the results page shows each video's margin.</li>
+    <li>Spin is the most fragile measurement: compare medians, not a single shot.</li>
+    <li>Some shots are not found, and balls sent back between points sometimes count as shots.</li>
+  </ul>
+  <p>The code is open: <a href="https://github.com/gabrielcmc4/baseline">github.com/gabrielcmc4/baseline</a>.</p>
+</article>
+</main>
+<footer><a class="nerd" href="./"><span data-l="pt">Voltar ao Baseline</span><span data-l="en" hidden>Back to Baseline</span></a></footer>
+<script type="module" src="js/how.js"></script>
+</body>
+</html>
