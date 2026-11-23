@@ -9,7 +9,7 @@
 // as seen from behind the hitter) and shot.sideM (metres between ball and trunk across the court, signed).
 const G = 9.81;
 const planes = im => { const n = im.width * im.height, d = im.data, a = new Uint8Array(n), b = new Uint8Array(n), c = new Uint8Array(n);
-  for (let i = 0, j = 0; i < n; i++, j += 4) { const r = d[j], g = d[j + 1], bl = d[j + 2]; const sm = r + g + bl + 30; a[i] = (r + 2 * g + bl) >> 2; b[i] = 128 + 96 * (r - bl) / sm; c[i] = 128 + 96 * (2 * g - r - bl) / sm; } // a: brightness; b, c: colour with the brightness divided out, so that the same ground in sun and in shade has the same colour return { a, b, c, w: im.width, h: im.height }; };
+  for (let i = 0, j = 0; i < n; i++, j += 4) { const r = d[j], g = d[j + 1], bl = d[j + 2]; const sm = r + g + bl + 30; a[i] = (r + 2 * g + bl) >> 2; b[i] = 128 + 96 * (r - bl) / sm; c[i] = 128 + 96 * (2 * g - r - bl) / sm; } /* a: brightness; b, c: colour with the brightness divided out, so that the same ground in sun and in shade has the same colour */ return { a, b, c, w: im.width, h: im.height }; };
 const median = (arr, n) => { for (let i = 1; i < n; i++) { const v = arr[i]; let j = i - 1; while (j >= 0 && arr[j] > v) { arr[j + 1] = arr[j]; j--; } arr[j + 1] = v; } return arr[n >> 1]; };
 // a camera on a fence or a light tripod sways: before two pictures are compared, find by how many pixels one has slid against the other
 const slide = (cur, ref, R = 8) => { const w = cur.w, h = cur.h, A = cur.a, B = ref.a; let best = Infinity, bx = 0, by = 0;
