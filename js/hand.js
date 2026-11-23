@@ -48,13 +48,16 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       const top = P([fx, fy, 2.5]), bot = P([fx, fy, -0.2]), x0 = Math.max(0, Math.floor(top[0] - 2.4 * ppm)), x1 = Math.min(cur.w, Math.ceil(top[0] + 2.4 * ppm)), y0 = Math.max(0, Math.floor(Math.min(top[1], bot[1]))), y1 = Math.min(cur.h, Math.ceil(Math.max(top[1], bot[1])));
       const w = x1 - x0, h = y1 - y0; if (w < 20 || h < 20) continue;
       // cut-out: pixels that differ from the median of the other moments, in brightness or in colour
-      let n = refs.length, lab, m2, comps, best = null; const allRefs = refs, ex = P([fx, fy, 1])[0] - x0;
-      for (let pass = 0; pass < 2 && !best; pass++) { if (pass) { if (allRefs.length < 7) break; const ord = refT.map((d, q) => [d, q]).sort((a, b) => a[0] - b[0]).slice(0, 5); refs = ord.map(q => allRefs[q[1]]); n = refs.length; } // nobody found: sun and shadow have moved too much over the longer stretch; try again with only the moments closest in time
+      let n = refs.length, lab, m2, comps, best = null; const ex = P([fx, fy, 1])[0] - x0;
+      {
       const buf = new Uint8Array(n), off = refs.map(r => { const q = slide(cur, r); return q[1] * cur.w + q[0]; }), N = cur.w * cur.h, bg = new Uint8Array(w * h), dif = new Float32Array(w * h), m = new Uint8Array(w * h);
       // a phone camera keeps adjusting exposure and colour balance: bring every other picture to this one's level over the patch before comparing (the usual difference per plane, which the hitter, a small part of the patch, hardly moves)
-      const lev = refs.map((r, ri) => ['a', 'b', 'c'].map(pl => { const hst = new Int32Array(511); let cnt = 0; for (let y = 0; y < h; y += 3) for (let x = 0; x < w; x += 3) { const o = (y + y0) * cur.w + x + x0, q = o + off[ri]; hst[cur[pl][o] - r[pl][q < 0 ? 0 : q >= N ? N - 1 : q] + 255]++; cnt++; } let acc = 0; for (let v = 0; v < 511; v++) { acc += hst[v]; if (acc >= cnt / 2) return v - 255; } return 0; }));
+      // exposure first: brightness is multiplied, and colour with it (a brighter picture of a blue court is also bluer in these planes)
+      const gain = refs.map((r, ri) => { const hst = new Int32Array(257); let cnt = 0; for (let y = 0; y < h; y += 3) for (let x = 0; x < w; x += 3) { const o = (y + y0) * cur.w + x + x0, q = o + off[ri], rv = r.a[q < 0 ? 0 : q >= N ? N - 1 : q]; if (rv < 24 || cur.a[o] < 24) continue; const g = Math.round(64 * cur.a[o] / rv); hst[g > 256 ? 256 : g]++; cnt++; } if (cnt < 50) return 1; let acc = 0; for (let v = 0; v < 257; v++) { acc += hst[v]; if (acc >= cnt / 2) return Math.max(0.5, Math.min(2, v / 64)); } return 1; });
+      const adj = (r, ri, pi, q) => { const raw = r['abc'[pi]][q < 0 ? 0 : q >= N ? N - 1 : q]; return pi ? 128 + (raw - 128) * gain[ri] : raw * gain[ri]; };
+      const lev = refs.map((r, ri) => [0, 1, 2].map(pi => { const pl = 'abc'[pi]; const hst = new Int32Array(511); let cnt = 0; for (let y = 0; y < h; y += 3) for (let x = 0; x < w; x += 3) { const o = (y + y0) * cur.w + x + x0, q = o + off[ri]; const dv = Math.round(cur[pl][o] - adj(r, ri, pi, q)); hst[(dv < -255 ? -255 : dv > 255 ? 255 : dv) + 255]++; cnt++; } let acc = 0; for (let v = 0; v < 511; v++) { acc += hst[v]; if (acc >= cnt / 2) return v - 255; } return 0; }));
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = (y + y0) * cur.w + x + x0, q0 = y * w + x; let dY = 0, dC = 0;
-        for (let pi = 0; pi < 3; pi++) { const pl = 'abc'[pi]; for (let r = 0; r < n; r++) { const q = o + off[r], v = refs[r][pl][q < 0 ? 0 : q >= N ? N - 1 : q] + lev[r][pi]; buf[r] = v < 0 ? 0 : v > 255 ? 255 : v; } const md = median(buf, n), d = cur[pl][o] - md; if (pl === 'a') { bg[q0] = md; dY = d; } else if (Math.abs(d) > dC) dC = Math.abs(d); }
+        for (let pi = 0; pi < 3; pi++) { const pl = 'abc'[pi]; for (let r = 0; r < n; r++) { const v = adj(refs[r], r, pi, o + off[r]) + lev[r][pi]; buf[r] = v < 0 ? 0 : v > 255 ? 255 : v; } const md = median(buf, n), d = cur[pl][o] - md; if (pl === 'a') { bg[q0] = md; dY = d; } else if (Math.abs(d) > dC) dC = Math.abs(d); }
         // light and shadow change how bright the ground is, not its colour: the hitter's own shadow, tree shadows and sun patches that have moved since are not the hitter
         const light = dC < 7 && cur.a[o] > 0.4 * bg[q0] && cur.a[o] < 2.2 * bg[q0] + 8; dif[q0] = light ? 0 : Math.max(Math.abs(dY), 2.5 * dC); }
       // next to a sharp edge of the background (a court line) half a pixel of sway already makes a difference: ask for more there
@@ -71,7 +74,7 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       // the hitter: a piece the size and shape of a person, close to where the flight says the hit was, and whole (not cut by the edge of the picture at the sides or the top)
       for (const c of comps) { const ch = c.y1 - c.y0 + 1, cw = c.x1 - c.x0 + 1, cutBottom = c.y1 + y0 >= cur.h - 3; if (ch < (cutBottom ? 0.45 : 0.8) * ppm || ch > 2.9 * ppm || cw > 2.4 * ppm || cw > 1.6 * ch || c.n < 0.08 * ppm * ppm || c.n > 1.7 * ppm * ppm || c.n < 0.18 * cw * ch) continue;
         if (c.y0 + y0 <= 2) continue; const dist = Math.max(0, c.x0 - ex, ex - c.x1) / ppm; if (dist > 1.6) continue; const score = c.n / (1 + dist); if (!best || score > best.score) best = { ...c, score }; } }
-      if (!best) { s.sideWhy = 'nobody'; if (debug) debug(s, { cur, x0, y0, w, h, m: m2, lab, ppm, hm, k, none: true, refs: n, hits: Math.min(5, others.length), comps }); continue; }
+      if (!best) { s.sideWhy = 'nobody'; if (debug) { let fill = 0; for (let q = 0; q < w * h; q++) fill += m2[q]; debug(s, { cur, x0, y0, w, h, m: m2, lab, ppm, hm, k, none: true, refs: n, hits: Math.min(5, others.length), comps, fill: fill / (w * h), gain, ex }); } continue; }
       // trunk: the densest part of the band from the shoulders to the hips (an arm and a racket add little there)
       const pm = Math.min(ppm, (best.y1 - best.y0 + 1) / 1.6); // metres in the picture at the hitter: the flight's depth can be well off, a person's height is not
       const hp = Math.min(best.y1 - best.y0 + 1, 1.9 * ppm), r0 = Math.round(best.y0 + 0.28 * hp), r1 = Math.round(best.y0 + 0.62 * hp), hist = new Float64Array(w); let tot = 0;
@@ -79,13 +82,16 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       if (tot < 0.03 * pm * pm) { s.sideWhy = 'thin'; continue; }
       const wmed = (a, b) => { let t2 = 0; for (let x = a; x <= b; x++) t2 += hist[x]; let acc = 0; for (let x = a; x <= b; x++) { acc += hist[x]; if (acc >= t2 / 2) return x; } return (a + b) >> 1; };
       let tx = wmed(best.x0, best.x1); tx = wmed(Math.max(best.x0, Math.round(tx - 0.35 * pm)), Math.min(best.x1, Math.round(tx + 0.35 * pm)));
-      if (tx + x0 - 0.3 * pm <= 2 || tx + x0 + 0.3 * pm >= cur.w - 3) { s.sideWhy = 'edge'; continue; } // the trunk itself runs out of the picture: its middle cannot be found
+      const cutL = tx + x0 - 0.3 * pm <= 2, cutR = tx + x0 + 0.3 * pm >= cur.w - 3; // the trunk runs out of the picture on that side: its true middle is further out than what is seen
       // A camera straight behind the hitter sees "beside the body" as left and right in the picture. A camera at a corner looks across the court: there a ball met in front of the body (as every stroke is, by about half a metre) also shows to one side. Take that share out and scale back to metres across the court.
       const vx = fx - cam.C[0], vy = fy - cam.C[1], vn = Math.hypot(vx, vy) || 1, sin = vx / vn, cos = vy / vn, across = b3 => cos > 0.5 ? ((P(b3)[0] - x0 - tx) / pm + 0.5 * sin) / cos : 0;
-      // The side must be the same at both ends of the span in which the hit happened: a ball hit across the body is on the other side of it a moment later, and such a stroke is better left open than named wrongly.
-      const d1 = across(hm.ball), d2 = across(hm.ballEarly), dM = Math.abs(d1) < Math.abs(d2) ? d1 : d2, bu = P(hm.ball)[0] - x0;
-      s.sideM = +dM.toFixed(2); s.side = d1 * d2 > 0 && Math.abs(dM) >= 0.22 && Math.abs(dM) < 2.2 ? (dM > 0 ? 'R' : 'L') : ''; if (!s.side) s.sideWhy = d1 * d2 <= 0 ? 'crosses' : Math.abs(dM) < 0.22 ? 'close' : 'far'; s.sideD = [+d1.toFixed(2), +d2.toFixed(2)];
-      if (debug) debug(s, { cur, x0, y0, w, h, m: m2, lab, best, tx, bu, bv: P(hm.ball)[1] - y0, ppm, pm, hm, k, r0, r1, refs: n, hits: Math.min(5, others.length) });
+      // Where was the ball when it was hit? Not a question of time (the track starts a tenth or two of a second late and the hit's moment is not known that well) but of place: the ball's path in the picture, run backwards, is followed down to the rows of the hitter's own body, between shoulder and knee, where a stroke is met. Three rows are read: the middle one decides, and neither of the others may put the ball clearly on the opposite side.
+      const cutBottom = best.y1 + y0 >= cur.h - 3, bodyH = cutBottom ? 1.75 * ppm : hp, rowAt = f => { const vr = best.y0 + f * bodyH; let b3 = at(s, 0); for (let q = 0; q <= 90; q++) { b3 = at(s, -q * 0.005); if (P(b3)[1] - y0 >= vr) break; } return b3; };
+      const bHi = rowAt(0.30), bMid = rowAt(0.50), bLo = rowAt(0.70), dHi = across(bHi), dM = across(bMid), dLo = across(bLo), sg = dM > 0 ? 1 : -1, bu = P(bMid)[0] - x0, against = Math.min(sg * dHi, sg * dLo);
+      s.sideM = +dM.toFixed(2); s.sideD = [+dHi.toFixed(2), +dM.toFixed(2), +dLo.toFixed(2)];
+      s.side = Math.abs(dM) >= 0.22 && Math.abs(dM) < 3.5 && against > -0.25 ? (dM > 0 ? 'R' : 'L') : ''; if (!s.side) s.sideWhy = Math.abs(dM) < 0.22 ? 'close' : Math.abs(dM) >= 3.5 ? 'far' : 'crosses';
+      if (s.side && ((cutL && s.side === 'L') || (cutR && s.side === 'R'))) { s.side = ''; s.sideWhy = 'edge'; } // cut off on the side the ball seems to be on: cannot tell. On the other side the answer only gets safer.
+      if (debug) debug(s, { cur, x0, y0, w, h, m: m2, lab, best, tx, bu, bv: P(bMid)[1] - y0, ppm, pm, hm, k, r0, r1, refs: n, hits: Math.min(5, others.length) });
     } catch (e) { if (debug) console.error(e); }
     finally { if (onProgress) onProgress((i + 1) / list.length); } }
 }
