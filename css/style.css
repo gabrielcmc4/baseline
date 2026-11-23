@@ -86,7 +86,7 @@ svg.chart text{font:11px var(--text);fill:var(--ink2)}
 th,td{text-align:right;padding:.5rem .7rem;border-bottom:1px solid var(--sand);white-space:nowrap}th{font-weight:500;color:var(--ink2);font-size:.9rem}
 th:nth-child(-n+3),td:nth-child(-n+3){text-align:left}
 tbody tr{cursor:pointer}tbody tr:hover{background:var(--paper)}tbody tr.on{background:#eef4c8}
-.pill{display:inline-flex;align-items:center;gap:.4em}.pill::before{content:"";width:.6em;height:.6em;border-radius:50%;background:var(--in)}.pill.o::before{background:var(--out);border-radius:1px;transform:rotate(45deg)}
+.chk{color:var(--in);font-weight:600;cursor:help}.pill{display:inline-flex;align-items:center;gap:.4em}.pill::before{content:"";width:.6em;height:.6em;border-radius:50%;background:var(--in)}.pill.o::before{background:var(--out);border-radius:1px;transform:rotate(45deg)}
 td small{color:var(--ink2)}
 .trust p{max-width:75ch;margin:.4rem 0}
 footer{border-top:1px solid var(--sand);padding:1.2rem clamp(1rem,4vw,3rem);color:var(--ink2);font-size:.9rem;text-align:center}
@@ -205,5 +205,5 @@ footer .nerd:hover{color:var(--espresso)}
 .oss{border-collapse:collapse;width:100%;min-width:38rem;font-size:.95rem}
 .oss th{text-align:left;font-weight:500;color:var(--saddle);border-bottom:1px solid var(--tan);padding:.5rem .7rem .5rem 0}
 .oss td{vertical-align:top;border-bottom:1px solid var(--sand);padding:.7rem .9rem .7rem 0}
-.oss small{color:var(--ink2)}
+.oss small{color:var(--ink2)}.oss.num{min-width:0}.oss.num td,.oss.num th{padding-right:.6rem}
 .tuned{padding-left:1.2rem}.tuned li{margin:.5rem 0}

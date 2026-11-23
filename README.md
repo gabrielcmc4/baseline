@@ -60,6 +60,20 @@ Security choices:
 
 [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3-Clause). Fonts: Marcellus and Jost (SIL Open Font License).
 
+## What changed on 2026-11-23: speed accuracy
+
+Checked against an independent bounce-timing measurement on broadcast rallies (contact and bounce indexed by hand on the court lines, flight solved with gravity, drag and spin), the previous version was 27-34% off on all three forehands it found. Causes and fixes, in `js/engine.js`:
+
+- **Time base.** Broadcast "60 fps" is usually 50 pictures a second with every sixth shown twice (25 in 30 likewise). Repeats were only dropped when bit-identical, so most stayed in, and the pictures left carried the time they were shown at (up to 13 ms off). Repeats are now found relative to the pictures around them, and `retime()` gives the pictures back their capture times.
+- **The hit.** The flight used to start at the first tracked point, often 0.2 s after the hit, with its depth guessed from the player's feet. The incoming ball's track (or the toss, for a serve) now gives the moment and place of the hit; the flight is fitted from there, at about 1.0 m height for a groundstroke and 2.7 m for a serve, so the speed is the speed off the racket.
+- **The bounce.** The bounce after the end of a track is found from the spots where the ball suddenly climbs in the picture (both looks, the far one included) and pins the end of the flight in time and place.
+- **One camera's blind spot.** A fast flat flight and a slower loopy one draw nearly the same track; moving the hit along its line of sight changes the picture by about a pixel, the size of the calibration error. The anchored fit gives the picture 2 px of slack and lets the hit and the bounce decide. A ball may no longer pass under the court while it is still tracked in the air.
+- **Sidespin.** Slice serves curve sideways; the flight model now has a sideways spin term (used in the anchored fit), without which a lefty's slice serve fitted at 61 km/h instead of about 140.
+- **Tracks.** A long track (a second or more) is judged by how smooth each part is rather than as one parabola; a piece may shed one or two spots at its ends that are not yet in free flight (ball still in the tossing hand); pieces are only joined where the join itself is smooth; a track first seen deep in the court with no hit seen is no longer reported as a shot.
+- **Copies in phone videos.** A calm moment after a shaky one also changes few pixels. Near copies are therefore only skipped once they come at a steady rhythm (frame-rate conversion); bunched ones are real pictures and stay.
+
+Result in the browser on 6 shots from 3 clips (50, 30 and 25 fps; forehands, a backhand, a slice serve): speed within 3% of bounce timing (87-142 km/h), landing within 0.25 m. Stress test (15 runs with 15% of ball spots deleted and the rest jittered): 72 of 90 shots found (old engine 37), every checked speed within 5%, false shots 0.04 per clip (old 0.4). Shots whose hit and bounce were both seen are marked ✓ in the table; the others show at least ±10%. Without the bounce, accuracy is lower, especially at 30 fps. The test clips are broadcasts, not Baseline's phone setup.
+
 ## What changed on 2026-11-18
 
 - Videos are read by several workers at once (up to four) and stretches with nothing moving are skimmed; a 54-minute 1080p recording takes about half an hour on a 12-core PC.
@@ -67,4 +81,4 @@ Security choices:
 - The court finder uses the net tape as a line of known height and follows a camera that sways (for example one hung on a fence).
 - Serve practice from a raised camera, matches with a separate view for the other player, and lessons where the user stands on the far side ("I'm on the far side of the court").
 - The session type can be changed on the result page without reading the video again.
-- Known limits: a serve is only reported when its bounce is seen; far-side shots get their speed near the net and no spin; results have not been checked against ground truth.
+- Known limits: a serve is only reported when its bounce is seen; far-side shots get their speed near the net and no spin; results have not been checked against ground truth (see 2026-11-23 above for the first check, against bounce timing).

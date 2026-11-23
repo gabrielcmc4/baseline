@@ -28,15 +28,19 @@
   <ol class="pipe">
     <li><h3>Ler o vídeo, quadro a quadro</h3>
       <p>O arquivo é aberto por um leitor de MP4/MOV escrito para o projeto, que entrega cada imagem comprimida ao decodificador do próprio navegador (WebCodecs, o mesmo que toca vídeo com a placa de vídeo). As imagens são reduzidas para 1600 px e analisadas em até quatro processos paralelos.</p>
-      <p class="aside">Um detalhe que custou caro: celulares gravam em pedaços e guardam imagens "de aquecimento" que nenhum player mostra. Um jogo de 20 minutos do Gabriel tinha 75 segundos delas, e os horários dos golpes saíam mais de um minuto adiantados. Hoje o leitor segue a lista de edição do arquivo e usa o relógio do player.</p></li>
+      <p class="aside">Um detalhe que custou caro: celulares gravam em pedaços e guardam imagens "de aquecimento" que nenhum player mostra. Um jogo de 20 minutos do Gabriel tinha 75 segundos delas, e os horários dos golpes saíam mais de um minuto adiantados. Hoje o leitor segue a lista de edição do arquivo e usa o relógio do player.</p>
+      <p class="aside">Outro detalhe de relógio: transmissões de TV "a 60 quadros" costumam ter 50 imagens por segundo, com uma repetida a cada seis (ou 25 em 30). Cada imagem levava o horário em que é mostrada, até 13 ms longe do horário em que foi tirada, e uma bola perto da câmera anda 10 a 20 px nesse tempo. Hoje as cópias são reconhecidas pelo ritmo em que aparecem, descartadas, e cada imagem volta ao horário real. Num vídeo de celular, um momento calmo depois de um tremido também parece "cópia", mas não vem em ritmo, e fica.</p></li>
     <li><h3>Achar a quadra e descobrir onde está a câmera</h3>
       <p>Pixels claros e finos viram segmentos, segmentos viram linhas, e um modelo da quadra com medidas oficiais é encaixado nelas, junto com a distorção da lente e a fita da rede. Daí sai onde a câmera está (altura, distância atrás da linha de fundo) e uma função que leva qualquer ponto 3D da quadra a um pixel da imagem.</p></li>
     <li><h3>Achar a bola</h3>
       <p>Cada imagem é comparada com as vizinhas: só conta o que mudou em relação a antes <em>e</em> depois, já compensando o balanço da câmera. Depois entra a cor (amarelo-esverdeado). Do outro lado da rede a bola tem poucos pixels e quase não se move na imagem; lá há uma segunda olhada que compara a faixa com um fundo atualizado devagar.</p></li>
     <li><h3>Ligar os pontos e ajustar um voo em 3D</h3>
-      <p>Candidatos em imagens seguidas são ligados em trajetórias. Para cada uma, procura-se o voo físico (posição e velocidade iniciais, gravidade, arrasto do ar e a força do efeito) cuja projeção na imagem passa pelos pontos vistos. Desse voo saem a velocidade, a folga sobre a rede e o ponto de queda. O efeito vem da curvatura: topspin faz a bola cair antes do que a gravidade sozinha faria.</p></li>
+      <p>Candidatos em imagens seguidas são ligados em trajetórias. Para cada uma, procura-se o voo físico (posição e velocidade iniciais, gravidade, arrasto do ar e a força do efeito) cuja projeção na imagem passa pelos pontos vistos. Desse voo saem a velocidade, a folga sobre a rede e o ponto de queda. O efeito vem da curvatura: topspin faz a bola cair antes do que a gravidade sozinha faria; o efeito lateral, que faz um saque com slice curvar, também entra.</p>
+      <p>O voo começa no golpe. O rastreador costuma pegar a bola só 0,1 a 0,2 s depois da raquete, mas a bola que chega (ou, no saque, o lançamento) termina exatamente onde a raquete a encontrou. É dali que o voo é ajustado, e a velocidade mostrada é a da saída da raquete.</p></li>
     <li><h3>Resolver a profundidade</h3>
-      <p>Com uma câmera só, "perto e devagar" e "longe e rápido" se parecem. Duas âncoras resolvem: bolas que morrem na rede (a rede tem posição conhecida) e quiques vistos do outro lado (no quique a bola está no chão). Quando o vídeo tem âncoras suficientes, elas calibram todos os outros golpes.</p></li>
+      <p>Com uma câmera só, "rápido e reto" e "mais lento e em arco" desenham quase o mesmo caminho na imagem: mover o golpe ao longo da linha de visão (mais alto e perto da câmera, ou mais baixo e longe) muda a imagem em cerca de um pixel, o tamanho do próprio erro de calibração. Por isso o Baseline não confia na imagem para isso e usa âncoras:</p>
+      <ul><li><b>o golpe</b>: onde a bola que chega encontra a raquete, na altura da cintura (1,0 m, com folga de 25 cm; 2,7 m no saque);</li><li><b>o quique</b>: depois do fim da trajetória, o ponto em que o caminho da bola vira de repente para cima na imagem. Naquele instante e naquele lugar a bola está no chão;</li><li><b>a rede</b>: bolas que morrem nela têm posição conhecida.</li></ul>
+      <p>Golpes cuja velocidade ficou presa ao golpe e ao quique vistos no vídeo ganham ✓ na tabela. Os outros mostram a margem (±).</p></li>
     <li><h3>Dar nome aos golpes</h3>
       <p>Saque: bola que sobe quase na vertical (o lançamento) e logo depois sai rápido de cima. Rede: voo que termina na linha da rede sem que uma bola volte do outro lado. Forehand ou backhand: o jogador é recortado comparando a imagem com outros momentos do mesmo lugar, acha-se o meio do tronco, e o caminho da bola na imagem é seguido para trás até a altura do corpo. O lado em que ela cruza decide. Se não der para ter certeza, o golpe fica sem lado.</p></li>
   </ol>
@@ -60,12 +64,31 @@
   <ul class="tuned">
     <li><b>Cinco vídeos do Gabriel</b>: duas aulas, um treino de saque, um jogo e uma aula filmada do canto da quadra. Cada um quebrou alguma coisa: a câmera de canto escondia a imagem inteira atrás de uma máscara; o vídeo a 60 quadros por segundo fazia a bola "sumir" entre imagens vizinhas.</li>
     <li><b>22 vídeos da internet</b> (bancos de imagens, Wikimedia Commons, transmissões), para ver onde o programa erra feio: quadras duras, de grama e cobertas; câmera que se move (hoje ele avisa); vídeos que não são de tênis (ele recusa).</li>
+    <li><b>Uma conferência sem radar</b>: sem radar à mão, o Gabriel pediu outro jeito de conferir a velocidade pelo vídeo. Virou a comparação com o tempo até o quique (abaixo), que achou os erros do código e o deixou a até 3% dela.</li>
     <li><b>Correções que nasceram de uma frase</b>: "aquele golpe de 170 km/h não foi saque" virou a exigência do lançamento da bola. "As bolas na rede não estão boas" virou o teste de a bola voltar ou não do outro lado.</li>
   </ul>
 
+  <h2>Quão certa é a velocidade</h2>
+  <p>Sem radar, a velocidade foi conferida pelo tempo até o quique: em ralis de transmissões em que o golpe e o quique dão para marcar contra as linhas da quadra, uma medição independente (programas próprios, câmera calibrada à parte) encontra o voo, com gravidade, arrasto e efeito, que sai do ponto do golpe e chega ao ponto do quique no tempo medido. A primeira comparação mostrou o Baseline 27 a 34% fora; os erros eram do código (relógio das imagens, voo começando depois do golpe, quique não visto, falta de efeito lateral), não do teste. Depois da correção, rodando no navegador:</p>
+  <div class="tablewrap"><table class="oss num">
+    <thead><tr><th>Golpe</th><th>Antes</th><th>Agora</th><th>Quique</th></tr></thead>
+    <tbody>
+      <tr><td>Viena, forehand</td><td>112</td><td>87 ✓</td><td>88</td></tr>
+      <tr><td>Viena, backhand</td><td>166</td><td>131 ✓</td><td>131</td></tr>
+      <tr><td>Viena, forehand</td><td>86</td><td>133 ✓</td><td>130</td></tr>
+      <tr><td>Viena 30/s, forehand</td><td>94</td><td>87 ✓</td><td>88</td></tr>
+      <tr><td>Viena 30/s, backhand</td><td>perdido</td><td>131 ✓</td><td>131</td></tr>
+      <tr><td>Viena 30/s, forehand</td><td>perdido</td><td>134 ✓</td><td>130</td></tr>
+      <tr><td>Xangai, saque</td><td>perdido</td><td>142 ✓</td><td>141</td></tr>
+    </tbody>
+  </table></div>
+  <p class="aside">km/h. Viena: transmissão a 50 imagens por segundo, e o mesmo rali a 30; Xangai: 25, saque do Nadal com slice. A coluna "Quique" é a medição independente; sua margem é de 4 a 8%.</p>
+  <p>Todas as velocidades com ✓ ficaram a até 3% e os pontos de quique a até 25 cm. Para ver se isso se sustenta com imagens piores, o teste foi repetido 15 vezes apagando de propósito 15% dos pontos da bola e tremendo os outros: a versão nova achou 72 de 90 golpes (a antiga, 37), todas as velocidades com ✓ ficaram a até 5%, e os golpes falsos caíram de 0,4 para 0,04 por vídeo. Sem o quique visto, o erro típico fica entre 7 e 11% e chegou a um terço num caso; por isso esses golpes aparecem com ±10% ou mais.</p>
+  <p class="aside">O teste usou transmissões de TV (câmera a 13 m de altura), não a câmera de celular atrás da linha de fundo para a qual o Baseline foi feito, e a referência é o tempo até o quique, não um radar. Daquela altura de celular o quique do outro lado muitas vezes fica atrás da rede; bolas fundas e as que caem do seu lado são as que ganham ✓.</p>
+
   <h2>O que não acreditar</h2>
   <ul class="tuned">
-    <li>Nada aqui foi conferido com radar ou com contagem manual completa. Os números são estimativas com margem de erro, e a página de resultados mostra a margem de cada vídeo.</li>
+    <li>Nada aqui foi conferido com radar. As velocidades com ✓ bateram com o tempo até o quique; as outras são estimativas com a margem mostrada ao lado.</li>
     <li>O efeito é a medida mais frágil: compare medianas, não um golpe isolado.</li>
     <li>Parte dos golpes não é encontrada, e bolas devolvidas entre os pontos às vezes contam como golpe.</li>
   </ul>
@@ -82,15 +105,19 @@
   <ol class="pipe">
     <li><h3>Read the video, frame by frame</h3>
       <p>The file is opened by an MP4/MOV reader written for the project, which hands each compressed picture to the browser's own decoder (WebCodecs, the one that plays video on the graphics chip). Pictures are scaled to 1600 px and analysed in up to four parallel workers.</p>
-      <p class="aside">One detail that cost a lot: phones record in chunks and keep "run-up" pictures that no player shows. A 20-minute match of Gabriel's had 75 seconds of them, and shot times came out more than a minute early. The reader now follows the file's edit list and uses the player's clock.</p></li>
+      <p class="aside">One detail that cost a lot: phones record in chunks and keep "run-up" pictures that no player shows. A 20-minute match of Gabriel's had 75 seconds of them, and shot times came out more than a minute early. The reader now follows the file's edit list and uses the player's clock.</p>
+      <p class="aside">Another clock detail: TV broadcasts "at 60 frames" are usually 50 pictures a second with one in six shown twice (or 25 in 30). Each picture carried the time it is shown at, up to 13 ms away from the time it was taken, and a ball near the camera moves 10 to 20 px in that time. Copies are now recognised by the steady rhythm they come at, dropped, and every picture gets its real time back. In a phone video a calm moment after a shaky one also looks like a "copy", but it does not come at a rhythm, so it stays.</p></li>
     <li><h3>Find the court and work out where the camera is</h3>
       <p>Bright thin pixels become segments, segments become lines, and a court model with official measurements is fitted to them, together with lens distortion and the net tape. That gives the camera's place (height, distance behind the baseline) and a function taking any 3-D point of the court to a pixel.</p></li>
     <li><h3>Find the ball</h3>
       <p>Each picture is compared with its neighbours: only what changed against both before <em>and</em> after counts, with camera sway already compensated. Then colour (yellow-green). Beyond the net the ball is a few pixels and barely moves in the picture; there a second look compares the strip with a slowly updated background.</p></li>
     <li><h3>Join the dots and fit a flight in 3-D</h3>
-      <p>Candidates in consecutive pictures are linked into tracks. For each, the physical flight (starting position and velocity, gravity, air drag and the force from spin) is found whose projection into the picture passes through the points seen. From that flight come speed, net clearance and landing spot. Spin comes from curvature: topspin brings the ball down sooner than gravity alone would.</p></li>
+      <p>Candidates in consecutive pictures are linked into tracks. For each, the physical flight (starting position and velocity, gravity, air drag and the force from spin) is found whose projection into the picture passes through the points seen. From that flight come speed, net clearance and landing spot. Spin comes from curvature: topspin brings the ball down sooner than gravity alone would; sidespin, which makes a slice serve curve, is in the model too.</p>
+      <p>The flight starts at the hit. The tracker often picks the ball up only 0.1 to 0.2 s after the racket, but the incoming ball (or, for a serve, the toss) ends exactly where the racket met it. The flight is fitted from there, and the speed shown is the speed off the racket.</p></li>
     <li><h3>Settle the depth</h3>
-      <p>With one camera, "near and slow" and "far and fast" look alike. Two anchors settle it: balls that die in the net (its position is known) and bounces seen on the far side (at the bounce the ball is on the ground). When a video has enough anchors they calibrate every other shot.</p></li>
+      <p>With one camera, "fast and flat" and "slower and loopy" draw nearly the same path in the picture: moving the hit along its line of sight (higher and nearer the camera, or lower and further) changes the picture by about a pixel, the size of the calibration error itself. So Baseline does not ask the picture to decide; it uses anchors:</p>
+      <ul><li><b>the hit</b>: where the incoming ball meets the racket, at waist height (1.0 m, give or take 25 cm; 2.7 m for a serve);</li><li><b>the bounce</b>: after the end of the track, the point where the ball's path suddenly turns up in the picture. At that moment and place the ball is on the ground;</li><li><b>the net</b>: balls that die in it have a known position.</li></ul>
+      <p>Shots whose speed is pinned to the hit and the bounce seen in the video get a ✓ in the table. The others show their margin (±).</p></li>
     <li><h3>Name the shots</h3>
       <p>Serve: a ball rising almost straight up (the toss) and then leaving fast from above. Net: a flight ending at the net's line with no ball coming back from the other side. Forehand or backhand: the player is cut out by comparing the picture with other moments of the same spot, the middle of the trunk is found, and the ball's path in the picture is followed backwards down to body height. The side on which it crosses decides. If that cannot be told with confidence, the stroke is left without a side.</p></li>
   </ol>
@@ -114,12 +141,31 @@
   <ul class="tuned">
     <li><b>Five of Gabriel's videos</b>: two lessons, a serve practice, a match and a lesson filmed from the corner of the court. Each one broke something: the corner camera hid the whole picture behind a mask; 60 frames per second made the ball "vanish" between neighbouring pictures.</li>
     <li><b>22 videos from the internet</b> (stock footage, Wikimedia Commons, broadcasts), to see where the program fails badly: hard, grass and indoor courts; a moving camera (it now warns); videos that are not tennis (it refuses).</li>
+    <li><b>A check without a radar</b>: with no radar at hand, Gabriel asked for another way to check speed from video. It became the bounce-timing comparison (below), which found the errors in the code and brought it within 3% of it.</li>
     <li><b>Fixes born from one sentence</b>: "that 170 km/h shot was not a serve" became the requirement of a ball toss. "Balls in the net are not working well" became the test of whether a ball comes back from the other side.</li>
   </ul>
 
+  <h2>How sure is the speed</h2>
+  <p>Without a radar, speed was checked by bounce timing: on broadcast rallies where the hit and the bounce can be pinned to the court lines, an independent measurement (separate programs, a separately calibrated camera) finds the flight, with gravity, drag and spin, that leaves the point of the hit and reaches the point of the bounce in the measured time. The first comparison showed Baseline 27 to 34% off; the errors were in the code (picture clock, flight starting after the hit, bounce not seen, no sidespin), not in the test. After the fix, running in the browser:</p>
+  <div class="tablewrap"><table class="oss num">
+    <thead><tr><th>Shot</th><th>Before</th><th>Now</th><th>Bounce</th></tr></thead>
+    <tbody>
+      <tr><td>Vienna, forehand</td><td>112</td><td>87 ✓</td><td>88</td></tr>
+      <tr><td>Vienna, backhand</td><td>166</td><td>131 ✓</td><td>131</td></tr>
+      <tr><td>Vienna, forehand</td><td>86</td><td>133 ✓</td><td>130</td></tr>
+      <tr><td>Vienna 30/s, forehand</td><td>94</td><td>87 ✓</td><td>88</td></tr>
+      <tr><td>Vienna 30/s, backhand</td><td>missed</td><td>131 ✓</td><td>131</td></tr>
+      <tr><td>Vienna 30/s, forehand</td><td>missed</td><td>134 ✓</td><td>130</td></tr>
+      <tr><td>Shanghai, serve</td><td>missed</td><td>142 ✓</td><td>141</td></tr>
+    </tbody>
+  </table></div>
+  <p class="aside">km/h. Vienna: broadcast at 50 pictures a second, and the same rally at 30; Shanghai: 25, Nadal's slice serve. The "Bounce" column is the independent measurement; its own margin is 4 to 8%.</p>
+  <p>Every speed with a ✓ came within 3%, and the bounce spots within 25 cm. To see whether that holds with worse pictures, the test was repeated 15 times with 15% of the ball spots deleted on purpose and the rest jittered: the new version found 72 of 90 shots (the old one, 37), every speed with a ✓ stayed within 5%, and false shots fell from 0.4 to 0.04 per video. Without the bounce seen, the typical error is 7 to 11% and reached a third in one case; those shots therefore show ±10% or more.</p>
+  <p class="aside">The test used TV broadcasts (camera 13 m up), not the phone camera behind the baseline that Baseline is made for, and the reference is bounce timing, not a radar. From that phone height the far bounce is often behind the net; deep balls and balls landing on your own side are the ones that get a ✓.</p>
+
   <h2>What not to believe</h2>
   <ul class="tuned">
-    <li>Nothing here has been checked against radar or a full hand count. The numbers are estimates with a margin of error, and the results page shows each video's margin.</li>
+    <li>Nothing here has been checked against a radar. Speeds with a ✓ matched bounce timing; the others are estimates with the margin shown next to them.</li>
     <li>Spin is the most fragile measurement: compare medians, not a single shot.</li>
     <li>Some shots are not found, and balls sent back between points sometimes count as shots.</li>
   </ul>
