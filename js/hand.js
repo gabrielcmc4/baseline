@@ -9,7 +9,7 @@
 // as seen from behind the hitter) and shot.sideM (metres between ball and trunk across the court, signed).
 const G = 9.81;
 const planes = im => { const n = im.width * im.height, d = im.data, a = new Uint8Array(n), b = new Uint8Array(n), c = new Uint8Array(n);
-  for (let i = 0, j = 0; i < n; i++, j += 4) { const r = d[j], g = d[j + 1], bl = d[j + 2]; a[i] = (r + 2 * g + bl) >> 2; b[i] = ((r - bl) >> 1) + 128; c[i] = ((2 * g - r - bl) >> 2) + 128; } return { a, b, c, w: im.width, h: im.height }; };
+  for (let i = 0, j = 0; i < n; i++, j += 4) { const r = d[j], g = d[j + 1], bl = d[j + 2]; const sm = r + g + bl + 30; a[i] = (r + 2 * g + bl) >> 2; b[i] = 128 + 96 * (r - bl) / sm; c[i] = 128 + 96 * (2 * g - r - bl) / sm; } // a: brightness; b, c: colour with the brightness divided out, so that the same ground in sun and in shade has the same colour return { a, b, c, w: im.width, h: im.height }; };
 const median = (arr, n) => { for (let i = 1; i < n; i++) { const v = arr[i]; let j = i - 1; while (j >= 0 && arr[j] > v) { arr[j + 1] = arr[j]; j--; } arr[j + 1] = v; } return arr[n >> 1]; };
 // a camera on a fence or a light tripod sways: before two pictures are compared, find by how many pixels one has slid against the other
 const slide = (cur, ref, R = 8) => { const w = cur.w, h = cur.h, A = cur.a, B = ref.a; let best = Infinity, bx = 0, by = 0;
@@ -52,9 +52,9 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       {
       const buf = new Uint8Array(n), off = refs.map(r => { const q = slide(cur, r); return q[1] * cur.w + q[0]; }), N = cur.w * cur.h, bg = new Uint8Array(w * h), dif = new Float32Array(w * h), m = new Uint8Array(w * h);
       // a phone camera keeps adjusting exposure and colour balance: bring every other picture to this one's level over the patch before comparing (the usual difference per plane, which the hitter, a small part of the patch, hardly moves)
-      // exposure first: brightness is multiplied, and colour with it (a brighter picture of a blue court is also bluer in these planes)
+      // exposure first: brightness is multiplied
       gain = refs.map((r, ri) => { const hst = new Int32Array(257); let cnt = 0; for (let y = 0; y < h; y += 3) for (let x = 0; x < w; x += 3) { const o = (y + y0) * cur.w + x + x0, q = o + off[ri], rv = r.a[q < 0 ? 0 : q >= N ? N - 1 : q]; if (rv < 24 || cur.a[o] < 24) continue; const g = Math.round(64 * cur.a[o] / rv); hst[g > 256 ? 256 : g]++; cnt++; } if (cnt < 50) return 1; let acc = 0; for (let v = 0; v < 257; v++) { acc += hst[v]; if (acc >= cnt / 2) return Math.max(0.5, Math.min(2, v / 64)); } return 1; });
-      const adj = (r, ri, pi, q) => { const raw = r['abc'[pi]][q < 0 ? 0 : q >= N ? N - 1 : q]; return pi ? 128 + (raw - 128) * gain[ri] : raw * gain[ri]; };
+      const adj = (r, ri, pi, q) => { const raw = r['abc'[pi]][q < 0 ? 0 : q >= N ? N - 1 : q]; return pi ? raw : raw * gain[ri]; };
       const lev = refs.map((r, ri) => [0, 1, 2].map(pi => { const pl = 'abc'[pi]; const hst = new Int32Array(511); let cnt = 0; for (let y = 0; y < h; y += 3) for (let x = 0; x < w; x += 3) { const o = (y + y0) * cur.w + x + x0, q = o + off[ri]; const dv = Math.round(cur[pl][o] - adj(r, ri, pi, q)); hst[(dv < -255 ? -255 : dv > 255 ? 255 : dv) + 255]++; cnt++; } let acc = 0; for (let v = 0; v < 511; v++) { acc += hst[v]; if (acc >= cnt / 2) return v - 255; } return 0; }));
       for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = (y + y0) * cur.w + x + x0, q0 = y * w + x; let dY = 0, dC = 0;
         for (let pi = 0; pi < 3; pi++) { const pl = 'abc'[pi]; for (let r = 0; r < n; r++) { const v = adj(refs[r], r, pi, o + off[r]) + lev[r][pi]; buf[r] = v < 0 ? 0 : v > 255 ? 255 : v; } const md = median(buf, n), d = cur[pl][o] - md; if (pl === 'a') { bg[q0] = md; dY = d; } else if (Math.abs(d) > dC) dC = Math.abs(d); }
