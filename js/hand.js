@@ -38,10 +38,10 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
   for (let i = 0; i < list.length; i++) { const s = list[i], I = info[i], hm = I.hm, tc = I.tc; if (signal && signal.aborted) return; s.side = ''; s.sideM = null;
     try {
       // The same place at other moments. Best are the pictures of other strokes hit from somewhere else: there the hitter is known not to stand here. A player waits at the same spot between points, so pictures taken at fixed times alone can all show him there and the comparison finds nothing.
-      const others = []; for (let j = 0; j < list.length; j++) { if (j === i) continue; const J = info[j], dt = Math.abs(J.tc - tc); if (dt < 1 || dt > 300) continue; /* not long before or after: sunlight and shadows creep across the court */ if (Math.abs(J.u - I.u) < 1.6 * (I.ppm + J.ppm) && Math.abs(J.v - I.v) < 1.6 * (I.ppm + J.ppm)) continue; others.push([dt, J.tc]); }
-      others.sort((a, b) => a[0] - b[0]); const times = others.slice(0, 9).map(q => q[1]); // these are the clean ones; pictures at fixed times may all show him waiting on this very spot, so they only fill up when clean ones are short
+      const others = []; for (let j = 0; j < list.length; j++) { if (j === i) continue; const J = info[j], dt = Math.abs(J.tc - tc); if (dt < 1 || dt > 240) continue; /* not long before or after: sunlight and shadows creep across the court */ if (Math.abs(J.u - I.u) < 1.6 * (I.ppm + J.ppm) && Math.abs(J.v - I.v) < 1.6 * (I.ppm + J.ppm)) continue; others.push([dt, J.tc]); }
+      others.sort((a, b) => a[0] - b[0]); const times = others.filter(q => q[0] <= 90).slice(0, 5).map(q => q[1]); /* close in time: sunlight and shadows creep across the court */
       const g0 = Math.round(tc / step) * step, far = Math.min(4, 1.5 * step), grid = []; for (let j = -6; j <= 6; j++) { const g = g0 + j * step; if (g >= 0.5 && g <= duration - 0.5 && Math.abs(g - tc) >= far) grid.push(g); }
-      grid.sort((a, b) => Math.abs(a - tc) - Math.abs(b - tc)); for (const g of grid.slice(0, times.length >= 7 ? 0 : times.length >= 5 ? 2 : times.length >= 3 ? 4 : 10)) times.push(g);
+      grid.sort((a, b) => Math.abs(a - tc) - Math.abs(b - tc)); for (const g of grid.slice(0, times.length >= 4 ? 6 : 10)) times.push(g);
       const cur = await frame(tc); if (!cur) continue; let refs = []; const refT = []; for (const tm of times) { const p = await frame(tm); if (p && p.w === cur.w && p.h === cur.h) { refs.push(p); refT.push(Math.abs(tm - tc)); } } if (refs.length < 4) { s.sideWhy = 'refs'; continue; }
       const k = cur.w / cam.W, P = X => { const q = cam.project(X); return [q[0] * k, q[1] * k]; };
       const fx = hm.feet[0], fy = hm.feet[1], ppm = I.ppm * k; if (!(ppm > 12 && I.ppm >= 80)) { s.sideWhy = 'small'; continue; } // too small in the picture to tell trunk from arm
@@ -49,7 +49,8 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       const w = x1 - x0, h = y1 - y0; if (w < 20 || h < 20) continue;
       // cut-out: pixels that differ from the median of the other moments, in brightness or in colour
       let n = refs.length, lab, m2, comps, best = null, gain; const ex = P([fx, fy, 1])[0] - x0;
-      {
+      // Second try when nobody is found: the pictures at fixed times may all show him waiting on this very spot (then the "usual" picture contains him and nothing stands out). Use only moments of other strokes hit from elsewhere, even if further away in time.
+      for (let pass = 0; pass < 2 && !best; pass++) { if (pass) { const clean = []; for (const q of others.slice(0, 7)) { const p = await frame(q[1]); if (p && p.w === cur.w && p.h === cur.h) clean.push(p); } if (clean.length < 3) break; refs = clean; n = refs.length; }
       const buf = new Uint8Array(n), off = refs.map(r => { const q = slide(cur, r); return q[1] * cur.w + q[0]; }), N = cur.w * cur.h, bg = new Uint8Array(w * h), dif = new Float32Array(w * h), m = new Uint8Array(w * h);
       // a phone camera keeps adjusting exposure and colour balance: bring every other picture to this one's level over the patch before comparing (the usual difference per plane, which the hitter, a small part of the patch, hardly moves)
       // exposure first: brightness is multiplied
@@ -74,7 +75,7 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       // the hitter: a piece the size and shape of a person, close to where the flight says the hit was, and whole (not cut by the edge of the picture at the sides or the top)
       for (const c of comps) { const ch = c.y1 - c.y0 + 1, cw = c.x1 - c.x0 + 1, cutBottom = c.y1 + y0 >= cur.h - 3; if (ch < (cutBottom ? 0.45 : 0.8) * ppm || ch > 2.9 * ppm || cw > 2.4 * ppm || cw > 1.6 * ch || c.n < 0.08 * ppm * ppm || c.n > 1.7 * ppm * ppm || c.n < 0.18 * cw * ch) continue;
         if (c.y0 + y0 <= 2) continue; const dist = Math.max(0, c.x0 - ex, ex - c.x1) / ppm; if (dist > 1.6) continue; const score = c.n / (1 + dist); if (!best || score > best.score) best = { ...c, score }; } }
-      if (!best) { s.sideWhy = 'nobody'; if (debug) { let fill = 0; for (let q = 0; q < w * h; q++) fill += m2[q]; debug(s, { cur, x0, y0, w, h, m: m2, lab, ppm, hm, k, none: true, refs: n, hits: Math.min(9, others.length), comps: comps.map(c => { const ch = c.y1 - c.y0 + 1, cw = c.x1 - c.x0 + 1; return { n: c.n, cw, ch, x0: c.x0, y0: c.y0, rel: [+(ch / ppm).toFixed(2), +(cw / ppm).toFixed(2), +(c.n / (ppm * ppm)).toFixed(2), +(c.n / (cw * ch)).toFixed(2), +(Math.max(0, c.x0 - ex, ex - c.x1) / ppm).toFixed(2)] }; }).sort((a, b) => b.n - a.n).slice(0, 4), fill: fill / (w * h), gain, ex }); } continue; }
+      if (!best) { s.sideWhy = 'nobody'; if (debug) { let fill = 0; for (let q = 0; q < w * h; q++) fill += m2[q]; debug(s, { cur, x0, y0, w, h, m: m2, lab, ppm, hm, k, none: true, refs: n, hits: others.length, comps: comps.map(c => { const ch = c.y1 - c.y0 + 1, cw = c.x1 - c.x0 + 1; return { n: c.n, cw, ch, x0: c.x0, y0: c.y0, rel: [+(ch / ppm).toFixed(2), +(cw / ppm).toFixed(2), +(c.n / (ppm * ppm)).toFixed(2), +(c.n / (cw * ch)).toFixed(2), +(Math.max(0, c.x0 - ex, ex - c.x1) / ppm).toFixed(2)] }; }).sort((a, b) => b.n - a.n).slice(0, 4), fill: fill / (w * h), gain, ex }); } continue; }
       // trunk: the densest part of the band from the shoulders to the hips (an arm and a racket add little there)
       const pm = Math.min(ppm, (best.y1 - best.y0 + 1) / 1.6); // metres in the picture at the hitter: the flight's depth can be well off, a person's height is not
       const hp = Math.min(best.y1 - best.y0 + 1, 1.9 * ppm), r0 = Math.round(best.y0 + 0.28 * hp), r1 = Math.round(best.y0 + 0.62 * hp), hist = new Float64Array(w); let tot = 0;
@@ -91,7 +92,7 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       s.sideM = +dM.toFixed(2); s.sideD = [+dHi.toFixed(2), +dM.toFixed(2), +dLo.toFixed(2)];
       s.side = Math.abs(dM) >= 0.22 && Math.abs(dM) < 3.5 && against > -0.25 ? (dM > 0 ? 'R' : 'L') : ''; if (!s.side) s.sideWhy = Math.abs(dM) < 0.22 ? 'close' : Math.abs(dM) >= 3.5 ? 'far' : 'crosses';
       if (s.side && ((cutL && s.side === 'L') || (cutR && s.side === 'R'))) { s.side = ''; s.sideWhy = 'edge'; } // cut off on the side the ball seems to be on: cannot tell. On the other side the answer only gets safer.
-      if (debug) debug(s, { cur, x0, y0, w, h, m: m2, lab, best, tx, bu, bv: P(bMid)[1] - y0, ppm, pm, hm, k, r0, r1, refs: n, hits: Math.min(9, others.length) });
+      if (debug) debug(s, { cur, x0, y0, w, h, m: m2, lab, best, tx, bu, bv: P(bMid)[1] - y0, ppm, pm, hm, k, r0, r1, refs: n, hits: others.length });
     } catch (e) { if (debug) console.error(e); }
     finally { if (onProgress) onProgress((i + 1) / list.length); } }
 }
