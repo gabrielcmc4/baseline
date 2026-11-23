@@ -41,4 +41,6 @@ export async function trimVideo(file, shots, { before = 2, after = 2 } = {}) {
   const ftypLen = ftyp.length, mdatHead = cat([u32(1), new Uint8Array([109, 100, 97, 116]), u64(16 + pos)]);
   const shift = ftypLen + 16 - HEAD; if (shift) { const dv = new DataView(co64.buffer, co64.byteOffset); for (let i = 0; i < n; i++) { const o = offs[i] + shift; dv.setUint32(16 + 8 * i, Math.floor(o / 4294967296)); dv.setUint32(20 + 8 * i, o >>> 0); } }
   const moov2 = shift ? box('moov', mvhd, box('trak', tkhd, ...(edts ? [edts] : []), box('mdia', mdhd, hdlr, box('minf', full('vmhd', 0, 1, new Uint8Array(8)), dinf, box('stbl', m.stsdRaw, stts, ctts, stss, stsc, stsz, co64))))) : moov;
-  return { blob: new Blob([head, mdatHead, ...blobs, moov2], { type: 'video/mp4' }), segments: segs.length, seconds: edts ? dur / mv : total / ts, pictures: n }; }
+  // where each kept stretch starts and ends on the original's clock and where it starts in the new video (for a caller that wants to find a shot again)
+  const map = []; { let out = 0; const fr = 1 / Math.max(1, Math.round(m.n / Math.max(1e-6, m.dts[m.n - 1] / ts))); for (const [i0, i1] of segs) { let a0 = Infinity, a1 = -Infinity; for (let i = i0; i < i1; i++) if (m.pres[i] >= 0) { if (m.pres[i] < a0) a0 = m.pres[i]; if (m.pres[i] > a1) a1 = m.pres[i]; } if (a1 < a0) continue; map.push({ src: a0, end: a1 + fr, out }); out += a1 + fr - a0; } }
+  return { blob: new Blob([head, mdatHead, ...blobs, moov2], { type: 'video/mp4' }), segments: segs.length, seconds: edts ? dur / mv : total / ts, pictures: n, map }; }
