@@ -8,7 +8,7 @@ import { trimVideo } from './trim.js';
 import { strokeSides, strokeName } from './hand.js';
 const $ = id => document.getElementById(id);
 const S = { file: null, info: null, img: null, lines: {}, raw: {}, pending: [], active: 'baseline', cal: null, shots: [], sel: null, mode: 'coach', abort: null, url: null };
-const newFilt = () => ({ type: new Set(), res: new Set(), spin: new Set(), min: '', max: '' }); S.filt = newFilt(); try { S.left = localStorage.getItem('baseline.left') === '1'; } catch (e) { S.left = false; }
+const newFilt = () => ({ type: new Set(), res: new Set(), spin: new Set(), min: '', max: '', clip: false }); S.filt = newFilt(); try { S.left = localStorage.getItem('baseline.left') === '1'; } catch (e) { S.left = false; }
 const ORDER = Object.keys(MODEL_LINES).filter(id => !id.startsWith('tape')); // the net tape is found automatically, never asked for
 function step(n) { $('s5').hidden = true; for (let i = 1; i <= 4; i++) { $('s' + i).hidden = i !== n; document.querySelector(`.steps li[data-step="${i}"]`).classList.toggle('on', i === n); } document.body.classList.toggle('working', n > 1); window.scrollTo(0, 0); }
 document.querySelectorAll('[data-lang]').forEach(b => b.onclick = () => { setLang(b.dataset.lang); refreshDynamic(); });
@@ -90,7 +90,7 @@ async function sides(onP) { try { if (S.sideKey !== S.framesKey) { S.sideKey = S
 // ---- demonstration: a real analysed session shipped with the site, for a visitor without a video
 async function openDemo() { const b = $('demoBtn'); b.disabled = true; $('err1').hidden = true;
   try { const r = await fetch(new URL('../demo/match.json', import.meta.url)); if (!r.ok) throw new Error('http ' + r.status); const s = await r.json();
-    S.shots = unpack(s.shots); S.meta = s.meta || null; S.mode = 'match'; S.fromHistory = true; S.demo = true; S.frames = null; S.file = null; S.filt = newFilt(); S.sel = null; S.view = 'me'; $('sdate').value = s.date || ''; step(4); renderReport(); crumb('demo opened');
+    S.shots = unpack(s.shots); { const byT = new Map(s.shots.filter(q => q && typeof q.vt === 'number').map(q => [q.t, q])); for (const q of S.shots) { const r = byT.get(q.t); if (r) q.clip = [+r.vt, +r.va, +r.vb]; } } S.demoVideo = typeof s.video === 'string' && /^[\w.-]+\.mp4$/.test(s.video) ? new URL('../demo/' + s.video, import.meta.url).href : null; S.meta = s.meta || null; S.mode = 'match'; S.fromHistory = true; S.demo = true; S.frames = null; S.file = null; S.filt = newFilt(); S.sel = null; S.view = 'me'; $('sdate').value = s.date || ''; step(4); S.filt.clip = S.shots.some(q => q.clip) && !!S.demoVideo; S.sel = S.filt.clip && vis().length ? 0 : null; renderReport(); if (S.sel != null) renderSel(true); crumb('demo opened');
   } catch (e) { console.error(e); $('err1').textContent = t('demoFail'); $('err1').hidden = false; } b.disabled = false; }
 $('demoBtn').onclick = openDemo; $('demoOwn').onclick = () => { S.demo = false; S.fromHistory = false; S.shots = []; step(1); }; if (/[?#&]demo\b/.test(location.search + location.hash)) openDemo();
 async function changeMode(m, force) { if (!S.frames || (m === S.mode && !force)) return; const sel = $('modeSel'); sel.disabled = true; $('modeMsg').textContent = t('fitting'); const old = S.mode; S.mode = m;
@@ -139,20 +139,21 @@ const base = () => two() ? S.shots.filter(q => (q.who || 'me') === (S.view || 'm
 // ---- filters on the shot list. Within one row any of the chosen options counts, across rows all must hold; the charts and the numbers follow the list.
 const kindOf = s => s.serve ? 'serve' : strokeName(s, S.left) || 'stroke'; // serve | fh | bh | stroke (a stroke whose side could not be told)
 const kindLabel = s => { const k = kindOf(s); return t(k === 'serve' ? 'serveT' : k); };
-const filtOn = () => { const f = S.filt; return !!(f.type.size || f.res.size || f.spin.size || f.min !== '' || f.max !== ''); };
-const match = s => { const f = S.filt, v = Math.round(s.speed); return (!f.type.size || f.type.has(kindOf(s))) && (!f.res.size || f.res.has(s.result)) && (!f.spin.size || (!s.far && f.spin.has(spinKind(s)))) && (f.min === '' || v >= f.min) && (f.max === '' || v <= f.max); };
+const filtOn = () => { const f = S.filt; return !!(f.type.size || f.res.size || f.spin.size || f.min !== '' || f.max !== '' || f.clip); };
+const match = s => { const f = S.filt, v = Math.round(s.speed); return (!f.type.size || f.type.has(kindOf(s))) && (!f.res.size || f.res.has(s.result)) && (!f.spin.size || (!s.far && f.spin.has(spinKind(s)))) && (f.min === '' || v >= f.min) && (f.max === '' || v <= f.max) && (!f.clip || !!s.clip); };
 const vis = () => { const b = base(); return filtOn() ? b.filter(match) : b; };
 const cap = x => x.charAt(0).toUpperCase() + x.slice(1);
-function filtText() { const f = S.filt, parts = []; for (const k of f.type) parts.push(t(k === 'serve' ? 'serveT' : k === 'stroke' ? 'noSide' : k)); for (const k of f.res) parts.push(t(k).toLowerCase()); for (const k of f.spin) parts.push(t(k));
+function filtText() { const f = S.filt, parts = []; for (const k of f.type) parts.push(t(k === 'serve' ? 'serveT' : k === 'stroke' ? 'noSide' : k)); for (const k of f.res) parts.push(t(k).toLowerCase()); for (const k of f.spin) parts.push(t(k)); if (f.clip) parts.push(t('filtClip'));
   if (f.min !== '' || f.max !== '') parts.push(f.min !== '' && f.max !== '' ? `${f.min}–${f.max} km/h` : f.min !== '' ? `≥ ${f.min} km/h` : `≤ ${f.max} km/h`); return parts.join(' · '); }
 function clearFilt() { S.filt = newFilt(); S.sel = null; renderReport(); }
 function renderFilters(all, keep) { const box = $('filters'), note = $('filtNote'), on = filtOn(); box.hidden = !all.length; if (!all.length) { $('filtCount').textContent = ''; note.hidden = true; box.innerHTML = ''; return; }
   const n = on ? all.filter(match).length : all.length; $('filtCount').textContent = on ? t('filtCount', { n, of: all.length }) : '';
   note.hidden = !on; note.innerHTML = ''; if (on) { const sp = document.createElement('span'); sp.textContent = t('filtActive', { f: filtText(), n, of: all.length }); const b = document.createElement('button'); b.type = 'button'; b.className = 'btn link'; b.textContent = t('filtClear'); b.onclick = clearFilt; note.append(sp, b); }
-  if (keep && box.childElementCount) { box.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(S.filt[c.dataset.g].has(c.dataset.k)))); const cl = box.querySelector('.clear'); if (cl) cl.hidden = !on; return; } // typing a speed must not rebuild the box under the cursor
+  if (keep && box.childElementCount) { box.querySelectorAll('.chip').forEach(c => c.setAttribute('aria-pressed', String(c.dataset.g === 'clip' ? S.filt.clip : S.filt[c.dataset.g].has(c.dataset.k)))); const cl = box.querySelector('.clear'); if (cl) cl.hidden = !on; return; } // typing a speed must not rebuild the box under the cursor
   box.innerHTML = ''; const row = (label, build) => { const l = document.createElement('span'); l.className = 'lab'; l.textContent = label; const o = document.createElement('div'); o.className = 'opts'; o.setAttribute('role', 'group'); o.setAttribute('aria-label', label); build(o); box.append(l, o); };
   const chips = (g, items) => o => { for (const [k, label, c] of items) { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.dataset.g = g; b.dataset.k = k; b.setAttribute('aria-pressed', String(S.filt[g].has(k))); if (!c && !S.filt[g].has(k)) b.disabled = true; b.append(cap(label) + ' '); const sm = document.createElement('small'); sm.textContent = c; b.appendChild(sm);
       b.onclick = () => { const st = S.filt[g]; if (st.has(k)) st.delete(k); else st.add(k); S.sel = null; renderReport(true); }; o.appendChild(b); } };
+  if (S.demo && all.some(q => q.clip)) row(t('filtVideo'), o => { const b = document.createElement('button'); b.type = 'button'; b.className = 'chip'; b.dataset.g = 'clip'; b.dataset.k = '1'; b.setAttribute('aria-pressed', String(S.filt.clip)); b.append('▶ ' + cap(t('filtClip')) + ' '); const sm = document.createElement('small'); sm.textContent = all.filter(q => q.clip).length; b.appendChild(sm); b.onclick = () => { S.filt.clip = !S.filt.clip; S.sel = null; renderReport(true); }; o.appendChild(b); });
   const types = [['serve', t('serveT')], ['fh', t('fh')], ['bh', t('bh')], ['stroke', t('noSide')]].map(([k, l]) => [k, l, all.filter(q => kindOf(q) === k).length]).filter(q => q[2] || S.filt.type.has(q[0]));
   if (types.length > 1 || S.filt.type.size) row(t('filtType'), chips('type', types));
   row(t('filtRes'), chips('res', ['in', 'net', 'long', 'wide'].map(k => [k, t(k), all.filter(q => q.result === k).length])));
@@ -198,8 +199,9 @@ function renderSel(play) { const box = $('sel'); if (S.sel == null) { box.innerH
   const a = s.flatPath[s.flatPath.length - 1][1], b = s.path[s.path.length - 1][1], d = Math.abs(a - b);
   const expl = kind === 'flat' ? t('spinWeak', { d: num(d, 1) }) : t('spinExplain', { a: num(a, 1), b: num(b, 1), d: num(d, 1), k: t(kind), r: num(Math.round(Math.abs(s.rpm) / 50) * 50), s: num(Math.round(s.rpmSd / 50) * 50) });
   box.innerHTML = `<h3>${t('selTitle', { t: fmtTime(s.t) })}</h3><dl><div><dt>${t('type')}</dt><dd>${kindLabel(s)}</dd></div><div><dt>${t('result')}</dt><dd>${resLabel(s)}</dd></div><div><dt>${t('speed')}</dt><dd>${num(s.speed)}${s.approx && s.speedSd ? ' ±' + num(s.speedSd) : ''} km/h</dd></div><div><dt>${t('clearance')}</dt><dd>${s.net ? num(s.clear, 2) + ' m' : '–'}</dd></div><div><dt>${t('depth')}</dt><dd>${num(s.land[1], 1)} m <small>±${num(s.landSd[1], 1)}</small></dd></div></dl><p>${s.result === 'net' || s.far ? '' : expl}</p>`;
-  if (S.fromHistory || !S.file) return;
-  if (!S.url) S.url = URL.createObjectURL(S.file); const v = document.createElement('video'); v.src = S.url; v.controls = true; v.muted = true; v.playsInline = true; box.appendChild(v); const st = Math.max(0, s.t - 2), en = s.t + 2; let loop = true, own = false; // replay from 2 s before to 2 s after the hit until the viewer scrubs
+  const clip = S.demo && S.demoVideo && s.clip; if (S.demo && S.demoVideo && !s.clip) { const p = document.createElement('p'); p.className = 'help'; p.textContent = t('demoNoClip'); box.appendChild(p); }
+  if (!clip && (S.fromHistory || !S.file)) return;
+  if (!clip && !S.url) S.url = URL.createObjectURL(S.file); const v = document.createElement('video'); v.src = clip ? S.demoVideo : S.url; v.controls = true; v.muted = true; v.playsInline = true; v.preload = 'auto'; box.appendChild(v); const st = clip ? s.clip[1] : Math.max(0, s.t - 2), en = clip ? s.clip[2] : s.t + 2; let loop = true, own = false; // replay from 2 s before to 2 s after the hit until the viewer scrubs
   const jump = () => { own = true; v.currentTime = st; };
   v.addEventListener('loadedmetadata', () => { jump(); if (play) v.play().catch(() => {}); });
   v.addEventListener('seeking', () => { if (own) own = false; else loop = false; }); // a seek the viewer made on the bar: hand over control
