@@ -12,21 +12,21 @@ const C = COURT, BALL_R = 0.033, MAX_M_PER_PX = 0.08; // with more court than th
 const med = a => { const b = ArrayBuffer.isView(a) ? a.slice().sort() : Array.from(a).sort((x, y) => x - y); return b.length ? b[b.length >> 1] : 0; }; // typed arrays sort by number on their own
 // the lines a landing can be judged against: [name, axis (0: a line x = v, 1: a line y = v), v, from, to along the other axis, sign of "inside" along the axis]
 const medIn = b => { b.sort(); return b[b.length >> 1]; }; // a typed array that is filled again afterwards: sorted where it is
-const linesFor = s => { const far = !s.far, y0 = far ? C.NET : 0, y1 = far ? C.LEN : C.NET, L = [];
-  if (s.serve) { const ySv = far ? C.LEN - C.SV : C.SV, sg = s.target ? (s.target === 'left' ? -1 : 1) : (s.land[0] >= 0 ? 1 : -1); L.push(['service', 1, ySv, -C.S, C.S, far ? -1 : 1]); L.push(['centre', 0, 0, Math.min(ySv, C.NET), Math.max(ySv, C.NET), sg]); L.push(['side', 0, sg * C.S, Math.min(ySv, C.NET), Math.max(ySv, C.NET), -sg]); }
-  else { L.push(['baseline', 1, far ? C.LEN : 0, -C.D, C.D, far ? -1 : 1]); L.push(['side', 0, s.land[0] >= 0 ? C.S : -C.S, y0, y1, s.land[0] >= 0 ? -1 : 1]); }
+const linesFor = (s, at = s.land) => { const far = !s.far, y0 = far ? C.NET : 0, y1 = far ? C.LEN : C.NET, L = [];
+  if (s.serve) { const ySv = far ? C.LEN - C.SV : C.SV, sg = s.target ? (s.target === 'left' ? -1 : 1) : (at[0] >= 0 ? 1 : -1); L.push(['service', 1, ySv, -C.S, C.S, far ? -1 : 1]); L.push(['centre', 0, 0, Math.min(ySv, C.NET), Math.max(ySv, C.NET), sg]); L.push(['side', 0, sg * C.S, Math.min(ySv, C.NET), Math.max(ySv, C.NET), -sg]); }
+  else { L.push(['baseline', 1, far ? C.LEN : 0, -C.D, C.D, far ? -1 : 1]); L.push(['side', 0, at[0] >= 0 ? C.S : -C.S, y0, y1, at[0] >= 0 ? -1 : 1]); }
   return L; };
 
 const linesAll = s => { const far = !s.far, y0 = far ? C.NET : 0, y1 = far ? C.LEN : C.NET, ySv = far ? C.LEN - C.SV : C.SV, sx = s.land[0] >= 0 ? 1 : -1; return [['baseline', 1, far ? C.LEN : 0, -C.D, C.D, far ? -1 : 1], ['service', 1, ySv, -C.S, C.S, far ? -1 : 1], ['side', 0, sx * C.S, y0, y1, -sx], ['centre', 0, 0, Math.min(ySv, C.NET), Math.max(ySv, C.NET), sx]]; }; // for trying the method out on any bounce
 
 export async function reviewLines(shots, cam, run, { width, height, onProgress, signal, debug, all, everyLine } = {}) { if (!width || !height) throw new Error('size');
-  const list = shots.filter(s => s.result !== 'net' && s.land && s.tLand > 0 && (all || s.close)).sort((a, b) => a.t - b.t);
+  const list = shots.filter(s => s.result !== 'net' && s.land && s.tLand > 0 && (s.close || (typeof all === 'function' ? all(s) : all))).sort((a, b) => a.t - b.t);
   for (let li = 0; li < list.length; li++) { const s = list[li]; if (signal && signal.aborted) return; s.lc = null; s.lcWhy = '';
     try {
       // which line is in question: the one the fitted landing is closest to, measured in its own uncertainty
       const sdx = Math.max(0.15, s.landSd ? s.landSd[0] : 0.3), sdy = Math.max(0.15, s.landSd ? s.landSd[1] : 0.5); let line = null, bestZ = Infinity;
       for (const l of (everyLine ? linesAll(s) : linesFor(s))) { const d = Math.abs(s.land[l[1]] - l[2]), z = d / (l[1] ? sdy : sdx), along0 = s.land[1 - l[1]], sdA = l[1] ? sdx : sdy; if (!everyLine && (along0 < l[3] - 2 * sdA - 0.3 || along0 > l[4] + 2 * sdA + 0.3)) continue; /* the ball came down beyond the end of this line: the line decides nothing */ if (z < bestZ && (typeof everyLine !== 'string' || everyLine === l[0])) { bestZ = z; line = l; } }
-      if (!line) { s.lcWhy = 'noline'; continue; }
+      if (!line && s.close) { s.lcWhy = 'noline'; continue; } if (!line) for (const l of linesFor(s)) { const d = Math.abs(s.land[l[1]] - l[2]); if (d < bestZ) { bestZ = d; line = l; } } if (!line) { s.lcWhy = 'noline'; continue; }
       // where to look: around the fitted landing, wide enough for what the fit does not know (mostly depth) and for a few pictures of the ball's way in and out
       const tb = s.t + s.tLand, k = width / cam.W, shx = s.sh ? s.sh[0] : 0, shy = s.sh ? s.sh[1] : 0, P = X => { const q = cam.project(X); return [(q[0] + shx) * k, (q[1] + shy) * k]; }, c0 = P([s.land[0], s.land[1], 0]); // sh: how far the picture had slipped from the calibration picture at that moment (a camera on a fence)
       const ground = (u, v, z) => cam.ground(u / k - shx, v / k - shy, z);
@@ -76,7 +76,8 @@ export async function reviewLines(shots, cam, run, { width, height, onProgress, 
       // the ball touches the ground one radius below its middle: the place on the ground under it, by the court drawing
       const cg = ground(hit.x + x0, hit.y + y0, BALL_R), cp = cg ? P([cg[0], cg[1], 0]) : null, contact = cp ? [cp[0] - x0, cp[1] - y0] : [hit.x, hit.y + rBall];
       // the paint: along the court drawing's line, look across it for the bright band in the usual picture and take its outer edge
-      const [name, ax, lv, la, lb, inside] = line, G0 = ground(contact[0] + x0, contact[1] + y0), along = G0 ? G0[1 - ax] : s.land[1 - ax], pt = (u, off) => { const X = [0, 0, 0]; X[ax] = lv + off; X[1 - ax] = u; return P(X); };
+      const G0 = ground(contact[0] + x0, contact[1] + y0); if (G0 && !everyLine) { let bd = Infinity, pick = null; for (const l of linesFor(s, G0)) { const u = G0[1 - l[1]], d = Math.abs(G0[l[1]] - l[2]); if (u < l[3] - 0.5 || u > l[4] + 0.5) continue; if (d < bd) { bd = d; pick = l; } } if (pick) line = pick; } /* now that the bounce is known: the line it is really nearest to */
+      const [name, ax, lv, la, lb, inside] = line, along = G0 ? G0[1 - ax] : s.land[1 - ax], pt = (u, off) => { const X = [0, 0, 0]; X[ax] = lv + off; X[1 - ax] = u; return P(X); };
       const near0 = Math.max(0, Math.min(n - 9, Math.round(ti) - 4)), pY = new Float32Array(w * h); { const b9 = new Int16Array(Math.min(9, n)); for (let q = 0; q < w * h; q++) { for (let i = 0; i < b9.length; i++) b9[i] = fr[near0 + i].Y[q]; pY[q] = medIn(b9); } } // the place as it looked around the bounce (a camera that is being turned moves the line)
       const edgePts = [], bandPts = []; for (let u = Math.max(la, along - 2.5); u <= Math.min(lb, along + 2.5); u += 0.1) { const pc = pt(u, 0), po = pt(u, -inside * 0.5), dx = po[0] - pc[0], dy = po[1] - pc[1], dn = Math.hypot(dx, dy) || 1, ux = dx / dn, uy = dy / dn, prof = []; // ux,uy: towards outside, across the line
         const R = Math.max(8, Math.min(30, 0.8 * dn / 0.5)); for (let q = -R; q <= R; q += 0.5) { const X = pc[0] + ux * q - x0, Yp = pc[1] + uy * q - y0; if (X < 1 || Yp < 1 || X >= w - 2 || Yp >= h - 2) { prof.push(-1); continue; } const xi = X | 0, yi = Yp | 0, fx = X - xi, fy = Yp - yi, o = yi * w + xi; prof.push(pY[o] * (1 - fx) * (1 - fy) + pY[o + 1] * fx * (1 - fy) + pY[o + w] * (1 - fx) * fy + pY[o + w + 1] * fx * fy); }
@@ -99,7 +100,7 @@ export async function reviewLines(shots, cam, run, { width, height, onProgress, 
       const margin = dPx * mPerPx + BALL_R, unc = Math.max(0.02, Math.hypot(seenB ? 1.0 : 1.6, resid, hit.miss / 2, med(near.map(e => e[5]))) * mPerPx), verdict = margin > unc ? 'in' : margin < -unc ? 'out' : 'close';
       const gx = P([gA[0] + BALL_R, gA[1], 0]), gy = P([gA[0], gA[1] + BALL_R, 0]), g0 = P([gA[0], gA[1], 0]), rx = Math.hypot(gx[0] - g0[0], gx[1] - g0[1]), ry = Math.hypot(gy[0] - g0[0], gy[1] - g0[1]);
       // everything a drawing of the call needs, in the analysis picture's own measure
-      s.lc = { verdict, cm: Math.round(margin * 100), unc: Math.round(unc * 100), line: name, t: fr[0].t + ti * step, uv: [(contact[0] + x0) / k, (contact[1] + y0) / k], edge: [(mx + x0) / k, (my + y0) / k, dir[0], dir[1]] /* both in the picture as it was at that moment */, rpx: Math.max(rx, ry) / k, squash: Math.max(0.25, Math.min(1, Math.min(rx, ry) / (Math.max(rx, ry) || 1))), flat: ry > rx, n: chain.length, mPerPx: +mPerPx.toFixed(4), scale: +(mPerPx * k).toFixed(4), seen: seenB };
+      s.lc = { verdict, cm: Math.round(margin * 100), unc: Math.round(unc * 100), line: name, t: fr[0].t + ti * step, g: [+gA[0].toFixed(3), +gA[1].toFixed(3)], uv: [(contact[0] + x0) / k, (contact[1] + y0) / k], edge: [(mx + x0) / k, (my + y0) / k, dir[0], dir[1]] /* both in the picture as it was at that moment */, rpx: Math.max(rx, ry) / k, squash: Math.max(0.25, Math.min(1, Math.min(rx, ry) / (Math.max(rx, ry) || 1))), flat: ry > rx, n: chain.length, mPerPx: +mPerPx.toFixed(4), scale: +(mPerPx * k).toFixed(4), seen: seenB };
       if (debug) debug(s, { fr, w, h, x0, y0, k, spots, chain, bgY, line, contact, edgePts: near, bandPts, ib, why: '' });
     } catch (e) { s.lcWhy = 'error'; if (debug) console.error(e); }
     finally { if (onProgress) onProgress((li + 1) / list.length); } }
@@ -107,7 +108,13 @@ export async function reviewLines(shots, cam, run, { width, height, onProgress, 
 
 // What a review changes: a ball called in or out with room to spare takes that call; one the picture cannot settle stays "too close to call".
 // Only the line that was in doubt is judged, so the call is taken only when the flight fit is sure of the other lines.
-export function applyReview(s) { const L = s.lc; if (!L || s.result === 'net') return false; if (s.result0 === undefined) { s.result0 = s.result; s.close0 = !!s.close; } s.result = s.result0; s.close = s.close0; if (L.verdict === 'close') { s.close = true; return false; }
+export function applyReview(s) { const L = s.lc; if (!L || s.result === 'net') return false; if (s.result0 === undefined) { s.result0 = s.result; s.close0 = !!s.close; s.land0 = s.land.slice(); s.landSd0 = s.landSd ? s.landSd.slice() : null; } s.result = s.result0; s.close = s.close0; s.land = s.land0.slice(); s.landSd = s.landSd0 ? s.landSd0.slice() : s.landSd;
+  // The bounce was measured in the picture, where one picture element is a few centimetres of court: that is where the ball came down, whatever the flight fit had worked out.
+  if (L.g && !s.serve && L.mPerPx <= 0.05) { const far = !s.far, y = far ? L.g[1] : C.LEN - L.g[1], x = Math.abs(L.g[0]), m = L.unc / 100, uo = Math.max(m, 0.1); // y: depth as for a ball landing on the far side; uo: the court drawing itself may be a hand's width off where the paint was not looked at
+    // room to spare inside each line: against the paint itself for the line that was looked at, by the court drawing for the other
+    const mb = L.line === 'baseline' ? L.cm / 100 : C.LEN - y + BALL_R, ub = L.line === 'baseline' ? m : uo, ms = L.line === 'side' ? L.cm / 100 : C.S - x + BALL_R, us = L.line === 'side' ? m : uo, res = mb < -ub ? 'long' : ms < -us ? 'wide' : mb > ub && ms > us ? 'in' : null;
+    s.land = [L.g[0], L.g[1]]; s.landSd = [Math.max(0.03, us), Math.max(0.03, ub)]; s.seenLand = true; if (res) { s.reviewed = s.close0 || res !== s.result0; s.result = res; s.close = false; return true; } s.close = true; s.reviewed = false; return false; }
+  if (!s.close0) return false; if (L.verdict === 'close') { s.close = true; return false; }
   const far = !s.far, x = s.serve && s.target ? (s.target === 'left' ? -1 : 1) * s.land[0] : Math.abs(s.land[0]), y = far ? s.land[1] : C.LEN - s.land[1], sdx = Math.max(0.15, s.landSd ? s.landSd[0] : 0.3), sdy = Math.max(0.15, s.landSd ? s.landSd[1] : 0.5), ySv = C.LEN - C.SV; // y: depth measured as for a ball landing on the far side
   const others = s.serve ? [L.line !== 'service' ? (ySv - y) / sdy : 9, L.line !== 'side' ? (C.S - x) / sdx : 9, L.line !== 'centre' ? x / sdx : 9, (y - C.NET) / sdy] : [L.line !== 'baseline' ? (C.LEN - y) / sdy : 9, L.line !== 'side' ? (C.S - x) / sdx : 9, (y - C.NET) / sdy];
   if (L.verdict === 'in') { if (Math.min(...others) < 1.5) { s.close = true; return false; } s.result = 'in'; } else s.result = L.line === 'baseline' || L.line === 'service' ? 'long' : 'wide';
