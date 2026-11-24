@@ -44,7 +44,7 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       grid.sort((a, b) => Math.abs(a - tc) - Math.abs(b - tc)); for (const g of grid.slice(0, times.length >= 4 ? 6 : 10)) times.push(g);
       const cur = await frame(tc); if (!cur) continue; let refs = []; const refT = []; for (const tm of times) { const p = await frame(tm); if (p && p.w === cur.w && p.h === cur.h) { refs.push(p); refT.push(Math.abs(tm - tc)); } } if (refs.length < 4) { s.sideWhy = 'refs'; continue; }
       const k = cur.w / cam.W, P = X => { const q = cam.project(X); return [q[0] * k, q[1] * k]; };
-      const fx = hm.feet[0], fy = hm.feet[1], ppm = I.ppm * k; if (!(ppm > 12 && I.ppm >= 80)) { s.sideWhy = 'small'; continue; } // too small in the picture to tell trunk from arm
+      const fx = hm.feet[0], fy = hm.feet[1], ppm = I.ppm * k; if (!(ppm > 22 && I.ppm >= 40)) { s.sideWhy = 'small'; continue; } // too small in the picture to tell trunk from arm
       const top = P([fx, fy, 2.5]), bot = P([fx, fy, -0.2]), x0 = Math.max(0, Math.floor(top[0] - 2.4 * ppm)), x1 = Math.min(cur.w, Math.ceil(top[0] + 2.4 * ppm)), y0 = Math.max(0, Math.floor(Math.min(top[1], bot[1]))), y1 = Math.min(cur.h, Math.ceil(Math.max(top[1], bot[1])));
       const w = x1 - x0, h = y1 - y0; if (w < 20 || h < 20) continue;
       // cut-out: pixels that differ from the median of the other moments, in brightness or in colour

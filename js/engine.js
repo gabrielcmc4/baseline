@@ -477,6 +477,8 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     if (!best) return null; const Q = [...best.values()].sort((a, b) => a[0] - b[0]).slice(0, 6), B = line(Q); if (B.dv > A.dv - 150 * s) return null;
     const m = meet(A, B, tE - 2 * dtF, Q[0][0]); if (!m || m.d > 5 * s || m.t < tE - 2 * dtF || m.t > Q[0][0]) return null; return { t: m.t, uv: m.uv, post: Q.length }; };
   // Refit with what was seen of the hit and the bounce. Moving the hit along its line of sight (higher and nearer the camera, or lower and further) changes the track in the picture by only a pixel or so, which is the size of the calibration error itself: the picture is given 2 px of slack and the height of the hit (a groundstroke is met at 1.0 m, give or take 25 cm) decides. Tested on broadcast rallies against bounce timing: within 4% instead of 27-34% off. With the hit seen the flight is fitted from the moment of the hit (and its speed is the speed off the racket); the time of the hit is tried a quarter frame either way and the best fit kept.
+  // How far on the ground two picture elements are at the landing spot. Seen at a grazing angle (the far service box from a camera at the corner of the court) a metre of court is two or three picture elements, and the court drawing itself is only good to about two: the landing spot cannot be known better than that, however clean the flight. Added to the landing's uncertainty so that such calls show as "on the limit" instead of a firm in or out.
+  const geoSd = (lx, ly) => { try { const p = cam.project([lx, ly, 0]), e = 2 * s; let dx = 0, dy = 0; for (const [du, dv] of [[e, 0], [-e, 0], [0, e], [0, -e]]) { const g = cam.ground(p[0] + du, p[1] + dv); if (!g || !isFinite(g[0]) || !isFinite(g[1])) return [3, 3]; dx = Math.max(dx, Math.abs(g[0] - lx)); dy = Math.max(dy, Math.abs(g[1] - ly)); } return [Math.min(3, dx), Math.min(3, dy)]; } catch (e) { return [0, 0]; } };
   const anchored = (o, t, uv, fit, prior, netHit) => { const C = contactOf(o), Tabs = t.map(v => v + o.t0); let B = netHit ? null : bounceOf(Tabs, uv); if (!C && !B) return null;
     let m = t.length; if (B) while (m > 6 && Tabs[m - 1] > B.t - 0.25 * dtF) m--; const tt0 = Tabs.slice(0, m), uv0 = uv.slice(0, m); let best = null;
     const keep = (f, tc, pr, tt) => { if (f && (!best || f.cost < best.fit.cost)) best = { fit: f, tc, prior: pr, t: tt, uv: uv0 }; };
@@ -525,6 +527,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     else if (mode === 'serve' || serve) { const left = x[0] > 0; target = left ? 'left' : 'right';
       const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
     else result = (Math.abs(lx) <= C.S && ly <= C.LEN) ? 'in' : (ly > C.LEN ? 'long' : 'wide');
+    { const g = geoSd(lx, ly); sd[0] = Math.hypot(sd[0], g[0]); sd[1] = Math.hypot(sd[1], g[1]); }
     let close = false; if (result !== 'net') { const yLim = (mode === 'serve' || serve) ? C.LEN - C.SV : C.LEN, xs = target ? (target === 'left' ? [-C.S, 0] : [0, C.S]) : [-C.S, C.S];
       close = Math.abs(ly - yLim) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
     const rpm = spinFromCl(x[6], v0), rpmHi = spinFromCl(x[6] + sd[3], v0), rpmLo = spinFromCl(x[6] - sd[3], v0);
@@ -571,8 +574,11 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     if (blind && !(fit.rms <= 1.5 && pts.length >= 15 && sd[1] <= 1.5 && sum.tLand - t[t.length - 1] < 0.25)) { meta.rej.noBounce = (meta.rej.noBounce || 0) + 1; continue; } if (blind) meta.approx = (meta.approx || 0) + 1;
     dd.st = 'ok'; dd.land = sum.land.map(v => +v.toFixed(1));
     const C = COURT, [lx, ly] = sum.land, left = x[0] > 0, target = left ? 'left' : 'right'; let result;
-    if (!sum.net || sum.clear < 0) result = 'net'; else { const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
-    let close = false; if (result !== 'net') { const xs = left ? [-C.S, 0] : [0, C.S]; close = Math.abs(ly - (C.LEN - C.SV)) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
+    { const g = geoSd(lx, ly); sd[0] = Math.hypot(sd[0], g[0]); sd[1] = Math.hypot(sd[1], g[1]); }
+    // A serve whose bounce was not seen and whose fitted flight passes the tape by less than the fit can vouch for: seen from the side the track always ends as the ball's picture reaches the net, so "just over" and "into the tape" look the same up to there. Gabriel's check of a corner-view lesson: both such serves (0.27 and 0.33 m over by the fit) had gone into the net. Called net, and marked as on the limit.
+    const netDoubt = blind && Math.abs(cam.C[0]) > COURT.D + 1 && sum.net && sum.clear >= 0 && sum.clear < Math.max(0.4, 1.2 * sd[2]); if (netDoubt) meta.netDoubt = (meta.netDoubt || 0) + 1;
+    if (!sum.net || sum.clear < 0 || netDoubt) result = 'net'; else { const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
+    let close = netDoubt; if (result !== 'net') { const xs = left ? [-C.S, 0] : [0, C.S]; close = Math.abs(ly - (C.LEN - C.SV)) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
     const rpm = spinFromCl(x[6], v0), rpmHi = spinFromCl(x[6] + sd[3], v0), rpmLo = spinFromCl(x[6] - sd[3], v0); for (const i of idx) usedS.add(i);
     shots.push({ t: t0, who: 'me', far: false, approx: blind, bounce: !!(ground || groundAt), n: pts.length, nTotal: pts.length, rms: fit.rms, rmsFlat: null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
       land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit: false, netZ: null, serve: true, target, feetY: null,
