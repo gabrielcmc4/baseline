@@ -37,6 +37,8 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
   const info = list.map(s => { const hm = hitMoment(s, cam, yOff), fx = hm.feet[0], fy = hm.feet[1], c = cam.project([fx, fy, 1]), ppm = Math.abs(cam.project([fx + 0.5, fy, 1])[0] - cam.project([fx - 0.5, fy, 1])[0]); return { hm, tc: Math.max(0, s.t + hm.look), u: c[0], v: c[1], ppm }; });
   for (let i = 0; i < list.length; i++) { const s = list[i], I = info[i], hm = I.hm, tc = I.tc; if (signal && signal.aborted) return; s.side = ''; s.sideM = null;
     try {
+      // A camera looking across the court sees the hitter from his side: left and right of the trunk in the picture are then in front of and behind him, and say nothing about forehand or backhand. Checked on a lesson filmed from the corner: 7 of 105 strokes got a side, and looking at the cut-outs showed why. Such strokes are left open without spending time on the pictures.
+      { const vx = hm.feet[0] - cam.C[0], vy = hm.feet[1] - cam.C[1]; if (vy / (Math.hypot(vx, vy) || 1) <= 0.6) { s.sideWhy = 'sideview'; continue; } }
       // The same place at other moments. Best are the pictures of other strokes hit from somewhere else: there the hitter is known not to stand here. A player waits at the same spot between points, so pictures taken at fixed times alone can all show him there and the comparison finds nothing.
       const others = []; for (let j = 0; j < list.length; j++) { if (j === i) continue; const J = info[j], dt = Math.abs(J.tc - tc); if (dt < 1 || dt > 240) continue; /* not long before or after: sunlight and shadows creep across the court */ if (Math.abs(J.u - I.u) < 1.6 * (I.ppm + J.ppm) && Math.abs(J.v - I.v) < 1.6 * (I.ppm + J.ppm)) continue; others.push([dt, J.tc]); }
       others.sort((a, b) => a[0] - b[0]); const times = others.filter(q => q[0] <= 90).slice(0, 5).map(q => q[1]); /* close in time: sunlight and shadows creep across the court */
@@ -44,7 +46,7 @@ export async function strokeSides(shots, cam, grab, { duration = Infinity, step 
       grid.sort((a, b) => Math.abs(a - tc) - Math.abs(b - tc)); for (const g of grid.slice(0, times.length >= 4 ? 6 : 10)) times.push(g);
       const cur = await frame(tc); if (!cur) continue; let refs = []; const refT = []; for (const tm of times) { const p = await frame(tm); if (p && p.w === cur.w && p.h === cur.h) { refs.push(p); refT.push(Math.abs(tm - tc)); } } if (refs.length < 4) { s.sideWhy = 'refs'; continue; }
       const k = cur.w / cam.W, P = X => { const q = cam.project(X); return [q[0] * k, q[1] * k]; };
-      const fx = hm.feet[0], fy = hm.feet[1], ppm = I.ppm * k; if (!(ppm > 22 && I.ppm >= 40)) { s.sideWhy = 'small'; continue; } // too small in the picture to tell trunk from arm
+      const fx = hm.feet[0], fy = hm.feet[1], ppm = I.ppm * k; if (!(ppm > 12 && I.ppm >= 80)) { s.sideWhy = 'small'; continue; } // too small in the picture to tell trunk from arm
       const top = P([fx, fy, 2.5]), bot = P([fx, fy, -0.2]), x0 = Math.max(0, Math.floor(top[0] - 2.4 * ppm)), x1 = Math.min(cur.w, Math.ceil(top[0] + 2.4 * ppm)), y0 = Math.max(0, Math.floor(Math.min(top[1], bot[1]))), y1 = Math.min(cur.h, Math.ceil(Math.max(top[1], bot[1])));
       const w = x1 - x0, h = y1 - y0; if (w < 20 || h < 20) continue;
       // cut-out: pixels that differ from the median of the other moments, in brightness or in colour
