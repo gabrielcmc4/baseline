@@ -8,7 +8,7 @@
 // width, height: the size of that full picture. Sets shot.lc = { verdict: 'in' | 'out' | 'close', cm, unc, line, t, uv, edge, ... } when the bounce and the line
 // were both found, shot.lcWhy otherwise.
 import { COURT } from './engine.js';
-const C = COURT, BALL_R = 0.033, MAX_M_PER_PX = 0.06;
+const C = COURT, BALL_R = 0.033, MAX_M_PER_PX = 0.2; // beyond 20 cm of court to one picture element the picture says no more than the flight fit
 const med = a => { const b = ArrayBuffer.isView(a) ? a.slice().sort() : Array.from(a).sort((x, y) => x - y); return b.length ? b[b.length >> 1] : 0; }; // typed arrays sort by number on their own
 // the lines a landing can be judged against: [name, axis (0: a line x = v, 1: a line y = v), v, from, to along the other axis, sign of "inside" along the axis]
 const medIn = b => { b.sort(); return b[b.length >> 1]; }; // a typed array that is filled again afterwards: sorted where it is
@@ -79,11 +79,12 @@ export async function reviewLines(shots, cam, run, { width, height, onProgress, 
       const resid = Math.sqrt(near.reduce((a, p) => a + ((p[0] - mx) * nx + (p[1] - my) * ny) ** 2, 0) / near.length), dPx = -((contact[0] - mx) * nx + (contact[1] - my) * ny); // > 0: the contact point is on the court side of the outer edge
       // picture elements to centimetres across the line at that spot, from the court drawing
       const gA = cam.ground((contact[0] + x0) / k, (contact[1] + y0) / k), gB = cam.ground((contact[0] + nx * 4 + x0) / k, (contact[1] + ny * 4 + y0) / k); if (!gA || !gB) { s.lcWhy = 'noscale'; continue; } const mPerPx = Math.abs(gB[ax] - gA[ax]) / 4; if (!(mPerPx > 0) || mPerPx > 1.5 * MAX_M_PER_PX) { s.lcWhy = 'noscale'; continue; }
+      const seenB = hit.pre[hit.pre.length - 1][0] + 1 >= hit.post[0][0]; // the pictures on both sides of the bounce have the ball; otherwise the spot is where two paths cross, a little less sure
       // The ball is in when any part of where it touches the ground touches the line: the mark is about a ball's radius wide.
-      const margin = dPx * mPerPx + BALL_R, unc = Math.max(0.02, Math.hypot(1.0, resid, hit.miss / 2, med(near.map(e => e[5]))) * mPerPx), verdict = margin > unc ? 'in' : margin < -unc ? 'out' : 'close';
+      const margin = dPx * mPerPx + BALL_R, unc = Math.max(0.02, Math.hypot(seenB ? 1.0 : 1.6, resid, hit.miss / 2, med(near.map(e => e[5]))) * mPerPx), verdict = margin > unc ? 'in' : margin < -unc ? 'out' : 'close';
       const gx = P([gA[0] + BALL_R, gA[1], 0]), gy = P([gA[0], gA[1] + BALL_R, 0]), g0 = P([gA[0], gA[1], 0]), rx = Math.hypot(gx[0] - g0[0], gx[1] - g0[1]), ry = Math.hypot(gy[0] - g0[0], gy[1] - g0[1]);
       // everything a drawing of the call needs, in the analysis picture's own measure
-      s.lc = { verdict, cm: Math.round(margin * 100), unc: Math.round(unc * 100), line: name, t: fr[0].t + ti * step, uv: [(contact[0] + x0) / k, (contact[1] + y0) / k], edge: [(mx + x0) / k, (my + y0) / k, dir[0], dir[1]], rpx: Math.max(rx, ry) / k, squash: Math.max(0.25, Math.min(1, Math.min(rx, ry) / (Math.max(rx, ry) || 1))), flat: ry > rx, n: chain.length, mPerPx: +mPerPx.toFixed(4), seen: hit.pre[hit.pre.length - 1][0] + 1 >= hit.post[0][0] };
+      s.lc = { verdict, cm: Math.round(margin * 100), unc: Math.round(unc * 100), line: name, t: fr[0].t + ti * step, uv: [(contact[0] + x0) / k, (contact[1] + y0) / k], edge: [(mx + x0) / k, (my + y0) / k, dir[0], dir[1]], rpx: Math.max(rx, ry) / k, squash: Math.max(0.25, Math.min(1, Math.min(rx, ry) / (Math.max(rx, ry) || 1))), flat: ry > rx, n: chain.length, mPerPx: +mPerPx.toFixed(4), seen: seenB };
       if (debug) debug(s, { fr, w, h, x0, y0, k, spots, chain, bgY, line, contact, edgePts: near, bandPts, ib, why: '' });
     } catch (e) { s.lcWhy = 'error'; if (debug) console.error(e); }
     finally { if (onProgress) onProgress((li + 1) / list.length); } }
