@@ -91,7 +91,7 @@ export async function reviewLines(shots, cam, run, { width, height, onProgress, 
       const margin = dPx * mPerPx + BALL_R, unc = Math.max(0.02, Math.hypot(seenB ? 1.0 : 1.6, resid, hit.miss / 2, med(near.map(e => e[5]))) * mPerPx), verdict = margin > unc ? 'in' : margin < -unc ? 'out' : 'close';
       const gx = P([gA[0] + BALL_R, gA[1], 0]), gy = P([gA[0], gA[1] + BALL_R, 0]), g0 = P([gA[0], gA[1], 0]), rx = Math.hypot(gx[0] - g0[0], gx[1] - g0[1]), ry = Math.hypot(gy[0] - g0[0], gy[1] - g0[1]);
       // everything a drawing of the call needs, in the analysis picture's own measure
-      s.lc = { verdict, cm: Math.round(margin * 100), unc: Math.round(unc * 100), line: name, t: fr[0].t + ti * step, uv: [(contact[0] + x0) / k, (contact[1] + y0) / k], edge: [(mx + x0) / k, (my + y0) / k, dir[0], dir[1]], rpx: Math.max(rx, ry) / k, squash: Math.max(0.25, Math.min(1, Math.min(rx, ry) / (Math.max(rx, ry) || 1))), flat: ry > rx, n: chain.length, mPerPx: +mPerPx.toFixed(4), seen: seenB };
+      s.lc = { verdict, cm: Math.round(margin * 100), unc: Math.round(unc * 100), line: name, t: fr[0].t + ti * step, uv: [(contact[0] + x0) / k, (contact[1] + y0) / k], edge: [(mx + x0) / k, (my + y0) / k, dir[0], dir[1]], rpx: Math.max(rx, ry) / k, squash: Math.max(0.25, Math.min(1, Math.min(rx, ry) / (Math.max(rx, ry) || 1))), flat: ry > rx, n: chain.length, mPerPx: +mPerPx.toFixed(4), scale: +(mPerPx * k).toFixed(4), seen: seenB };
       if (debug) debug(s, { fr, w, h, x0, y0, k, spots, chain, bgY, line, contact, edgePts: near, bandPts, ib, why: '' });
     } catch (e) { s.lcWhy = 'error'; if (debug) console.error(e); }
     finally { if (onProgress) onProgress((li + 1) / list.length); } }
