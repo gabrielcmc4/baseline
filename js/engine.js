@@ -233,7 +233,7 @@ export class Detector {
         // a camera that moved a fraction of a pixel makes every sharp edge (leaves, court lines) look like movement: a real ball is still different when the neighbouring frames are allowed to slip by one pixel (only for a camera that has been seen to move: on a fixed one this would cost real, faint balls)
         if (this.maxShift >= 4) { const pg = p.g, ng = nx.g, o1 = o + op, o2 = o + on; let m1 = 255, m2 = 255; for (let dy = -W; dy <= W; dy += W) for (let dx = -1; dx <= 1; dx++) { let v = a - pg[o1 + dy + dx]; if (v < 0) v = -v; if (v < m1) m1 = v; v = a - ng[o2 + dy + dx]; if (v < 0) v = -v; if (v < m2) m2 = v; } if (m1 <= MT || m2 <= MT) continue; }
         if (ok) { hits.push(o); this.kind[o] = 1; } else hits.push(o); } }
-    const out = { t: c.t, c: [], c2: [], fb: [], blobs: [], valid: c.valid, cut: c.cut }; if (c.rep) out.rep = c.rep; if (c.rc) out.rc = 1; if (c.valid) this._far(c, out); else out.fb = null; // c: blobs with clear ball colour; c2: also small blobs that only pass the weaker test
+    const out = { t: c.t, c: [], c2: [], fb: [], blobs: [], valid: c.valid, cut: c.cut }; if (c.rep) out.rep = c.rep; if (c.shift[0] || c.shift[1]) out.sh = c.shift; /* how far the picture had slipped from the calibration picture (the spots below are already given without it) */ if (c.rc) out.rc = 1; if (c.valid) this._far(c, out); else out.fb = null; // c: blobs with clear ball colour; c2: also small blobs that only pass the weaker test
     if (!(c.valid && hits.length < 4000)) for (const o of hits) this.kind[o] = 0; if (hits.length >= 4000) this.busy++; // too much of the picture moving at once (wind in trees, camera knocked): the frame cannot be used
     if (c.valid && hits.length < 4000) {
       for (const o of hits) { mask[o - W - 1] = mask[o - W] = mask[o - W + 1] = mask[o - 1] = mask[o] = mask[o + 1] = mask[o + W - 1] = mask[o + W] = mask[o + W + 1] = 1; }
@@ -379,7 +379,9 @@ export function analyze(frames0, cam, opts = {}) { frames0 = retime(frames0); if
     const all = []; let meta = null, done = 0; for (const [sg, fr] of groups) { done += fr.length; if (fr.length < 20 || !opts.cams[sg]) continue; const r = analyzeOne(fr, new Camera(opts.cams[sg], cam.W, cam.H), { ...opts, cams: null, onProgress: null }); for (const q of r) { q.seg = sg; all.push(q); } if (!meta || r.length > meta.n) meta = { ...r.meta, n: r.length }; if (opts.onProgress) opts.onProgress(done / frames0.length); }
     all.sort((a, b) => a.t - b.t); all.meta = { ...(meta || { rej: {} }), views: groups.size }; return all; }
   return analyzeOne(frames0, cam, opts); }
-function analyzeOne(frames0, cam, opts = {}) { const qz = quiet(frames0), frames = qz.frames, out = analyze2(frames, cam, opts); out.meta.noisy = [qz.cells, qz.removed]; return out; }
+function analyzeOne(frames0, cam, opts = {}) { const qz = quiet(frames0), frames = qz.frames, out = analyze2(frames, cam, opts); out.meta.noisy = [qz.cells, qz.removed];
+  for (const q of out) { const tq = q.t + (q.tLand || 0); let lo = 0, hi = frames.length - 1; while (lo < hi) { const mid = (lo + hi) >> 1; if (frames[mid].t < tq) lo = mid + 1; else hi = mid; } const f = frames[lo]; if (f && f.sh) q.sh = [f.sh[0], f.sh[1]]; } /* where the picture was, against the calibration picture, when the ball came down: for anything that goes back to the video itself */
+  return out; }
 function analyze2(frames, cam, opts = {}) { const p = opts.onProgress, a = analyzeCore(frames, cam, { ...opts, onProgress: p && (v => p(v / 2)) });
   if (opts.only || !frames.some(f => f.c2 && f.c2.length > f.c.length)) { a.meta.colour = 'strict'; return a; }
   const b = analyzeCore(frames.map(f => ({ ...f, c: f.c2 || f.c })), cam, { ...opts, onProgress: p && (v => p(0.5 + v / 2)) });
