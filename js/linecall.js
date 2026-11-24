@@ -14,7 +14,7 @@ const med = a => { const b = ArrayBuffer.isView(a) ? a.slice().sort() : Array.fr
 const medIn = b => { b.sort(); return b[b.length >> 1]; }; // a typed array that is filled again afterwards: sorted where it is
 const linesFor = s => { const far = !s.far, y0 = far ? C.NET : 0, y1 = far ? C.LEN : C.NET, L = [];
   if (s.serve) { const ySv = far ? C.LEN - C.SV : C.SV, sg = s.target ? (s.target === 'left' ? -1 : 1) : (s.land[0] >= 0 ? 1 : -1); L.push(['service', 1, ySv, -C.S, C.S, far ? -1 : 1]); L.push(['centre', 0, 0, Math.min(ySv, C.NET), Math.max(ySv, C.NET), sg]); L.push(['side', 0, sg * C.S, Math.min(ySv, C.NET), Math.max(ySv, C.NET), -sg]); }
-  else { L.push(['baseline', 1, far ? C.LEN : 0, -C.S, C.S, far ? -1 : 1]); L.push(['side', 0, s.land[0] >= 0 ? C.S : -C.S, y0, y1, s.land[0] >= 0 ? -1 : 1]); }
+  else { L.push(['baseline', 1, far ? C.LEN : 0, -C.D, C.D, far ? -1 : 1]); L.push(['side', 0, s.land[0] >= 0 ? C.S : -C.S, y0, y1, s.land[0] >= 0 ? -1 : 1]); }
   return L; };
 
 const linesAll = s => { const far = !s.far, y0 = far ? C.NET : 0, y1 = far ? C.LEN : C.NET, ySv = far ? C.LEN - C.SV : C.SV, sx = s.land[0] >= 0 ? 1 : -1; return [['baseline', 1, far ? C.LEN : 0, -C.D, C.D, far ? -1 : 1], ['service', 1, ySv, -C.S, C.S, far ? -1 : 1], ['side', 0, sx * C.S, y0, y1, -sx], ['centre', 0, 0, Math.min(ySv, C.NET), Math.max(ySv, C.NET), sx]]; }; // for trying the method out on any bounce

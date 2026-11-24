@@ -96,7 +96,7 @@ function seekRunner() { const v = S.info.video, sc = Math.min(1, 2560 / Math.max
 async function lines(onP) { try { if (S.lineKey !== S.framesKey) { S.lineKey = S.framesKey; S.lineCache = new Map(); } const id = q => Math.round(q.t * 100), todo = [];
     const dbg = window.__baselineLineAll; /* test hook: review every bounce, against a named line */ for (const q of S.shots) { if ((!q.close && !dbg) || q.result === 'net') continue; const c = S.lineCache.get(id(q)); if (c) { q.lc = c.lc; q.lcWhy = c.why; if (q.lc) applyReview(q); } else todo.push(q); }
     if (!todo.length || !S.info || !S.info.video || !S.cal || window.__baselineNoLine) return; const t0 = performance.now(); try { S.info.video.pause(); } catch (e) {}
-    let rd = null; try { if (S.file) rd = await runReader(S.file, { W: S.info.W, H: S.info.H }); } catch (e) { rd = null; } if (!rd) rd = seekRunner();
+    let rd = null; try { if (S.file) rd = await runReader(S.file, { W: S.info.W, H: S.info.H }); } catch (e) { rd = null; } if (!rd) { rd = seekRunner(); todo.length = Math.min(todo.length, 10); } /* going through the player picture by picture is slow: only the first few */
     try { await reviewLines(todo, S.cal.cam, rd.run, { width: rd.W, height: rd.H, onProgress: onP, signal: S.abort ? S.abort.signal : null, all: !!dbg, everyLine: dbg || false }); } finally { rd.close(); }
     for (const q of todo) { S.lineCache.set(id(q), { lc: q.lc || null, why: q.lcWhy || '' }); if (q.lc) applyReview(q); } const why = {}; for (const q of todo) { const k = q.lc ? q.lc.verdict : q.lcWhy || '?'; why[k] = (why[k] || 0) + 1; }
     crumb('line calls ' + todo.length + ' close, ' + JSON.stringify(why) + ', ' + Math.round((performance.now() - t0) / 1000) + 's');
