@@ -123,7 +123,7 @@ async function run() { crumb('run mode ' + S.mode); step(3); $('bar').style.widt
       let unlock = null; if (navigator.locks) navigator.locks.request('baseline-analysis-' + Math.random(), () => new Promise(r => { unlock = r; })).catch(() => {}); // holding a lock tells the browser this tab is working, so it is not frozen while in the background
       try {
       // the video is split into shares at key frames and each share is read by its own worker: on a machine with several cores this is the biggest saving of all
-      const parts = S.info.duration < 90 || window.__baselineParts === 1 ? 1 : Math.max(1, Math.min(4, window.__baselineParts || Math.floor((navigator.hardwareConcurrency || 2) / 3))); crumb('scan workers ' + parts);
+      const parts = S.info.duration < 90 || window.__baselineParts === 1 ? 1 : Math.max(1, window.__baselineParts ? Math.min(8, window.__baselineParts) : Math.min(4, Math.floor((navigator.hardwareConcurrency || 2) / 3))); crumb('scan workers ' + parts);
       r = await new Promise((res, rej) => { const ws = [], prog = new Array(parts).fill(0), outp = new Array(parts).fill(null); let left = parts, dead = false; const killAll = () => { dead = true; for (const w of ws) w.terminate(); };
         S.abort.signal.addEventListener('abort', () => { killAll(); rej(new Error('aborted')); });
         let seenP = -1; const ping = setInterval(() => { if (lastP === seenP && ws[0]) ws[0].postMessage({ ping: 1 }); seenP = lastP; }, 20000), end = () => clearInterval(ping); S.abort.signal.addEventListener('abort', end); // no progress for 20 s: ask a worker where it is
