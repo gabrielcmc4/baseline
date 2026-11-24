@@ -4,7 +4,7 @@ const el = (n, a = {}, parent, text) => { const e = document.createElementNS(NS,
 const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
 export const fmtTime = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 export const isEst = s => !!(s.approx || (s.landSd && s.landSd[1] > 3)); // landing depth only estimated: the ball was lost before it came down
-export const resLabel = s => t(s.result) + (isEst(s) && s.result !== 'net' ? ' (' + t('estLand') + ')' : s.close ? ' (' + t('closeCall') + ')' : '');
+export const resLabel = s => t(s.result) + (s.reviewed && s.lc ? ' (' + t('lcSeen', { cm: Math.abs(s.lc.cm) }) + ')' : isEst(s) && s.result !== 'net' ? ' (' + t('estLand') + ')' : s.close ? ' (' + t(s.lc ? 'lcTie' : 'closeCall') + ')' : '');
 export function spinKind(s) { if (Math.abs(s.cl) < Math.max(s.clSd, 0.02)) return 'flat'; return s.cl > 0 ? 'topspin' : 'slice'; }
 
 export function topView(host, shots, sel, onSelect, mode) {

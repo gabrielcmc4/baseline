@@ -207,3 +207,6 @@ footer .nerd:hover{color:var(--espresso)}
 .oss td{vertical-align:top;border-bottom:1px solid var(--sand);padding:.7rem .9rem .7rem 0}
 .oss small{color:var(--ink2)}.oss.num{min-width:0}.oss.num td,.oss.num th{padding-right:.6rem}
 .tuned{padding-left:1.2rem}.tuned li{margin:.5rem 0}
+
+label.check{display:flex;align-items:flex-start;gap:.5rem;font-size:.93rem;color:var(--saddle);flex-basis:100%}label.check input{accent-color:var(--saddle);margin-top:.2rem;width:1.05rem;height:1.05rem;flex:none}
+.sel .lc{margin:.2rem 0 .6rem;font-size:.93rem;color:var(--ink2)}.sel .lc b{color:var(--espresso);font-weight:500}
