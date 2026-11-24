@@ -4,13 +4,14 @@
 // turns back up (the bounce), where the paint of the line is, and how far apart the two are. It uses the court drawing
 // only to know where to look and how many centimetres a picture element is there, not to decide.
 //
-// grab(t) -> Promise<{data, width, height}>: the whole picture at time t (seconds on the player's clock), full size.
-// Sets shot.lc = { verdict: 'in' | 'out' | 'close', cm, unc, line, t, uv, edge, ball, crop } when the bounce and the line
+// run(t0, t1, {x, y, w, h}) -> Promise<[{ t, data }]>: every picture between two times (seconds on the player's clock), cut to a window of the full-size picture (RGBA).
+// width, height: the size of that full picture. Sets shot.lc = { verdict: 'in' | 'out' | 'close', cm, unc, line, t, uv, edge, ... } when the bounce and the line
 // were both found, shot.lcWhy otherwise.
 import { COURT } from './engine.js';
 const C = COURT, BALL_R = 0.033, MAX_M_PER_PX = 0.06;
-const med = a => { const b = Array.from(a).sort((x, y) => x - y); return b.length ? b[b.length >> 1] : 0; };
+const med = a => { const b = ArrayBuffer.isView(a) ? a.slice().sort() : Array.from(a).sort((x, y) => x - y); return b.length ? b[b.length >> 1] : 0; }; // typed arrays sort by number on their own
 // the lines a landing can be judged against: [name, axis (0: a line x = v, 1: a line y = v), v, from, to along the other axis, sign of "inside" along the axis]
+const medIn = b => { b.sort(); return b[b.length >> 1]; }; // a typed array that is filled again afterwards: sorted where it is
 const linesFor = s => { const far = !s.far, y0 = far ? C.NET : 0, y1 = far ? C.LEN : C.NET, L = [];
   if (s.serve) { const ySv = far ? C.LEN - C.SV : C.SV, sg = s.target ? (s.target === 'left' ? -1 : 1) : (s.land[0] >= 0 ? 1 : -1); L.push(['service', 1, ySv, -C.S, C.S, far ? -1 : 1]); L.push(['centre', 0, 0, Math.min(ySv, C.NET), Math.max(ySv, C.NET), sg]); L.push(['side', 0, sg * C.S, Math.min(ySv, C.NET), Math.max(ySv, C.NET), -sg]); }
   else { L.push(['baseline', 1, far ? C.LEN : 0, -C.S, C.S, far ? -1 : 1]); L.push(['side', 0, s.land[0] >= 0 ? C.S : -C.S, y0, y1, s.land[0] >= 0 ? -1 : 1]); }
@@ -18,7 +19,7 @@ const linesFor = s => { const far = !s.far, y0 = far ? C.NET : 0, y1 = far ? C.L
 
 const linesAll = s => { const far = !s.far, y0 = far ? C.NET : 0, y1 = far ? C.LEN : C.NET, ySv = far ? C.LEN - C.SV : C.SV, sx = s.land[0] >= 0 ? 1 : -1; return [['baseline', 1, far ? C.LEN : 0, -C.D, C.D, far ? -1 : 1], ['service', 1, ySv, -C.S, C.S, far ? -1 : 1], ['side', 0, sx * C.S, y0, y1, -sx], ['centre', 0, 0, Math.min(ySv, C.NET), Math.max(ySv, C.NET), sx]]; }; // for trying the method out on any bounce
 
-export async function reviewLines(shots, cam, grab, { fps = 60, width, onProgress, signal, debug, all, everyLine } = {}) {
+export async function reviewLines(shots, cam, run, { width, height, onProgress, signal, debug, all, everyLine } = {}) { if (!width || !height) throw new Error('size');
   const list = shots.filter(s => s.result !== 'net' && s.land && s.tLand > 0 && (all || s.close)).sort((a, b) => a.t - b.t);
   for (let li = 0; li < list.length; li++) { const s = list[li]; if (signal && signal.aborted) return; s.lc = null; s.lcWhy = '';
     try {
@@ -26,22 +27,20 @@ export async function reviewLines(shots, cam, grab, { fps = 60, width, onProgres
       const sdx = Math.max(0.15, s.landSd ? s.landSd[0] : 0.3), sdy = Math.max(0.15, s.landSd ? s.landSd[1] : 0.5); let line = null, bestZ = Infinity;
       for (const l of (everyLine ? linesAll(s) : linesFor(s))) { const d = Math.abs(s.land[l[1]] - l[2]), z = d / (l[1] ? sdy : sdx); if (z < bestZ && (typeof everyLine !== 'string' || everyLine === l[0])) { bestZ = z; line = l; } }
       if (!line) { s.lcWhy = 'noline'; continue; }
-      if (width) { const kk = width / cam.W, X1 = [s.land[0], s.land[1], 0], X2 = X1.slice(); X2[line[1]] += 0.5; const a1 = cam.project(X1), a2 = cam.project(X2); if (0.5 / (kk * Math.hypot(a2[0] - a1[0], a2[1] - a1[1]) || 1e-9) > MAX_M_PER_PX) { s.lcWhy = 'far'; continue; } } // known before fetching any picture
-      // where to look: around the fitted landing, wide enough for what the fit does not know (mostly depth), in full-size picture elements
-      const tb = s.t + s.tLand, step = (fps > 75 ? Math.round(fps / 60) : 1) / Math.max(10, fps), first = await grab((Math.round(tb / step) + 0.5) * step); if (!first) { s.lcWhy = 'nopic'; continue; }
-      const k = first.width / cam.W, P = X => { const q = cam.project(X); return [q[0] * k, q[1] * k]; }, c0 = P([s.land[0], s.land[1], 0]);
-      { const X1 = [s.land[0], s.land[1], 0], X2 = X1.slice(); X2[line[1]] += 0.5; const a1 = P(X1), a2 = P(X2), across = 0.5 / (Math.hypot(a2[0] - a1[0], a2[1] - a1[1]) || 1e-9); if (across > MAX_M_PER_PX) { s.lcWhy = 'far'; continue; } } // too little picture there: one picture element covers more court than a call can turn on
-      const spread = [[sdx, 0], [-sdx, 0], [0, sdy], [0, -sdy]].map(d => P([s.land[0] + 1.5 * d[0], s.land[1] + 1.5 * d[1], 0])), half = Math.round(Math.max(90, Math.min(190, 24 + Math.max(...spread.map(q => Math.max(Math.abs(q[0] - c0[0]), Math.abs(q[1] - c0[1])))))));
-      const x0 = Math.max(0, Math.min(first.width - 2 * half, Math.round(c0[0] - half))), y0 = Math.max(0, Math.min(first.height - 2 * half, Math.round(c0[1] - half))), w = Math.min(2 * half, first.width), h = Math.min(2 * half, first.height);
-      // the pictures around the bounce, cut to that window: brightness, and how yellow-green each element is
-      const span = Math.min(0.5, 0.2 + 0.12 * sdy), times = [], f0 = Math.max(0, Math.round((tb - span) / step)), f1 = Math.round((tb + span) / step); for (let f = f0; f <= f1; f++) times.push((f + 0.5) * step); // the middle of each picture's time on screen, so a player asked for it shows that picture and not a neighbour
-      const fr = []; for (const tt of times) { const im = await grab(tt); if (!im || im.width !== first.width) continue; const Y = new Uint8Array(w * h), G = new Int16Array(w * h), rgb = new Uint8ClampedArray(w * h * 4);
-        for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const o = ((y + y0) * im.width + x + x0) * 4, q = y * w + x, r = im.data[o], g = im.data[o + 1], b = im.data[o + 2]; Y[q] = (r + 2 * g + b) >> 2; G[q] = g + r - 2 * b; rgb[q * 4] = r; rgb[q * 4 + 1] = g; rgb[q * 4 + 2] = b; rgb[q * 4 + 3] = 255; } fr.push({ t: tt, Y, G, rgb }); }
+      // where to look: around the fitted landing, wide enough for what the fit does not know (mostly depth) and for a few pictures of the ball's way in and out
+      const tb = s.t + s.tLand, k = width / cam.W, P = X => { const q = cam.project(X); return [q[0] * k, q[1] * k]; }, c0 = P([s.land[0], s.land[1], 0]);
+      { const X2 = [s.land[0], s.land[1], 0]; X2[line[1]] += 0.5; const a2 = P(X2); if (0.5 / (Math.hypot(a2[0] - c0[0], a2[1] - c0[1]) || 1e-9) > MAX_M_PER_PX) { s.lcWhy = 'far'; continue; } } // too little picture there: one picture element covers more court than a call can turn on
+      const ppm = Math.hypot(P([s.land[0] + 0.5, s.land[1], 0])[0] - P([s.land[0] - 0.5, s.land[1], 0])[0], P([s.land[0] + 0.5, s.land[1], 0])[1] - P([s.land[0] - 0.5, s.land[1], 0])[1]), rBall = Math.max(1.2, BALL_R * ppm), fly = 0.07 * Math.max(8, 0.6 * (s.speed || 60) / 3.6) * ppm; // how far the ball goes in the picture in 0.07 s, roughly
+      const spread = [[sdx, 0], [-sdx, 0], [0, sdy], [0, -sdy]].map(d => P([s.land[0] + 1.5 * d[0], s.land[1] + 1.5 * d[1], 0])), half = Math.round(Math.max(90, Math.min(300, Math.max(fly, 24 + Math.max(...spread.map(q => Math.max(Math.abs(q[0] - c0[0]), Math.abs(q[1] - c0[1]))))))));
+      const w = Math.min(2 * half, width), h = Math.min(2 * half, height), x0 = Math.max(0, Math.min(width - w, Math.round(c0[0] - half))), y0 = Math.max(0, Math.min(height - h, Math.round(c0[1] - half)));
+      const span = Math.min(0.5, 0.2 + 0.12 * sdy); let got = await run(Math.max(0, tb - span), tb + span, { x: x0, y: y0, w, h }); if (!got || got.length < 9) { s.lcWhy = 'nopic'; continue; }
+      { const dts = []; for (let i = 1; i < got.length; i++) dts.push(got[i].t - got[i - 1].t); const dt = med(dts), every = dt > 0 && dt < 1 / 90 ? Math.round((1 / 60) / dt) : 1; if (every > 1) got = got.filter((_, i) => i % every === 0); } // slow-motion video: sixty pictures a second are plenty
+      const step = (got[got.length - 1].t - got[0].t) / (got.length - 1) || 1 / 60, fr = got.map(g => { const Y = new Uint8Array(w * h), G = new Int16Array(w * h), d = g.data; for (let q = 0, o = 0; q < w * h; q++, o += 4) { const r = d[o], gg = d[o + 1], b = d[o + 2]; Y[q] = (r + 2 * gg + b) >> 2; G[q] = gg + r - 2 * b; } return { t: g.t, Y, G, rgb: d }; });
       if (fr.length < 9) { s.lcWhy = 'nopic'; continue; }
       // the place without the ball: for each element the usual value over those pictures
-      const n = fr.length, bgY = new Uint8Array(w * h), bgG = new Int16Array(w * h), buf = new Int16Array(n); for (let q = 0; q < w * h; q++) { for (let i = 0; i < n; i++) buf[i] = fr[i].Y[q]; bgY[q] = med(buf); for (let i = 0; i < n; i++) buf[i] = fr[i].G[q]; bgG[q] = med(buf); }
+      const n = fr.length, bgY = new Uint8Array(w * h), bgG = new Int16Array(w * h), buf = new Int16Array(n); for (let q = 0; q < w * h; q++) { for (let i = 0; i < n; i++) buf[i] = fr[i].Y[q]; bgY[q] = medIn(buf); for (let i = 0; i < n; i++) buf[i] = fr[i].G[q]; bgG[q] = medIn(buf); }
       // the ball in each picture: a small spot that is not usually there and is yellower than what is
-      const ppm = Math.hypot(P([s.land[0] + 0.5, s.land[1], 0])[0] - P([s.land[0] - 0.5, s.land[1], 0])[0], P([s.land[0] + 0.5, s.land[1], 0])[1] - P([s.land[0] - 0.5, s.land[1], 0])[1]), rBall = Math.max(1.2, BALL_R * ppm), maxA = Math.max(30, 40 * rBall * rBall);
+      const maxA = Math.max(30, 40 * rBall * rBall);
       const spots = fr.map(f => { const m = new Uint8Array(w * h); for (let q = 0; q < w * h; q++) if (f.Y[q] - bgY[q] > 12 || (f.G[q] - bgG[q] > 22 && f.Y[q] - bgY[q] > -4)) m[q] = 1; /* brighter or yellower than usual; darker is the ball's shadow, which lies elsewhere */ const out = [], seen = new Uint8Array(w * h), st = [];
         for (let q0 = 0; q0 < w * h; q0++) { if (!m[q0] || seen[q0]) continue; let cnt = 0, sx = 0, sy = 0, sw = 0, yb = 0, xa = w, xb = 0; seen[q0] = 1; st.push(q0); while (st.length) { const q = st.pop(), x = q % w, y = (q / w) | 0, wt = Math.max(1, f.Y[q] - bgY[q], (f.G[q] - bgG[q]) / 2); cnt++; sx += x * wt; sy += y * wt; sw += wt; if (y > yb) yb = y; if (x < xa) xa = x; if (x > xb) xb = x;
             for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const xx = x + dx, yy = y + dy; if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue; const r = yy * w + xx; if (m[r] && !seen[r]) { seen[r] = 1; st.push(r); } } }
@@ -65,7 +64,7 @@ export async function reviewLines(shots, cam, grab, { fps = 60, width, onProgres
       const cg = cam.ground((hit.x + x0) / k, (hit.y + y0) / k, BALL_R), cp = cg ? P([cg[0], cg[1], 0]) : null, contact = cp ? [cp[0] - x0, cp[1] - y0] : [hit.x, hit.y + rBall];
       // the paint: along the court drawing's line, look across it for the bright band in the usual picture and take its outer edge
       const [name, ax, lv, la, lb, inside] = line, G0 = cam.ground((contact[0] + x0) / k, (contact[1] + y0) / k), along = G0 ? G0[1 - ax] : s.land[1 - ax], pt = (u, off) => { const X = [0, 0, 0]; X[ax] = lv + off; X[1 - ax] = u; return P(X); };
-      const near0 = Math.max(0, Math.min(n - 9, Math.round(ti) - 4)), pY = new Float32Array(w * h); { const b9 = new Int16Array(Math.min(9, n)); for (let q = 0; q < w * h; q++) { for (let i = 0; i < b9.length; i++) b9[i] = fr[near0 + i].Y[q]; pY[q] = med(b9); } } // the place as it looked around the bounce (a camera that is being turned moves the line)
+      const near0 = Math.max(0, Math.min(n - 9, Math.round(ti) - 4)), pY = new Float32Array(w * h); { const b9 = new Int16Array(Math.min(9, n)); for (let q = 0; q < w * h; q++) { for (let i = 0; i < b9.length; i++) b9[i] = fr[near0 + i].Y[q]; pY[q] = medIn(b9); } } // the place as it looked around the bounce (a camera that is being turned moves the line)
       const edgePts = [], bandPts = []; for (let u = Math.max(la, along - 2.5); u <= Math.min(lb, along + 2.5); u += 0.1) { const pc = pt(u, 0), po = pt(u, -inside * 0.5), dx = po[0] - pc[0], dy = po[1] - pc[1], dn = Math.hypot(dx, dy) || 1, ux = dx / dn, uy = dy / dn, prof = []; // ux,uy: towards outside, across the line
         const R = Math.max(16, Math.min(60, 1.0 * dn / 0.5)); for (let q = -R; q <= R; q += 0.5) { const X = pc[0] + ux * q - x0, Yp = pc[1] + uy * q - y0; if (X < 1 || Yp < 1 || X >= w - 2 || Yp >= h - 2) { prof.push(-1); continue; } const xi = X | 0, yi = Yp | 0, fx = X - xi, fy = Yp - yi, o = yi * w + xi; prof.push(pY[o] * (1 - fx) * (1 - fy) + pY[o + 1] * fx * (1 - fy) + pY[o + w] * (1 - fx) * fy + pY[o + w + 1] * fx * fy); }
         const ok = prof.filter(v => v >= 0); if (ok.length < 0.6 * prof.length) continue; const lo = med(ok), hi = Math.max(...ok); if (hi - lo < 25) continue; const th = lo + 0.5 * (hi - lo), sub = (i, j2) => { const v0 = prof[i], v1 = prof[j2]; return v0 < 0 || v1 < 0 || v0 === v1 ? i : i + (j2 - i) * (th - v0) / (v1 - v0); }; // where the profile crosses half height, between two samples
@@ -84,7 +83,7 @@ export async function reviewLines(shots, cam, grab, { fps = 60, width, onProgres
       const margin = dPx * mPerPx + BALL_R, unc = Math.max(0.02, Math.hypot(1.0, resid, hit.miss / 2, med(near.map(e => e[5]))) * mPerPx), verdict = margin > unc ? 'in' : margin < -unc ? 'out' : 'close';
       const gx = P([gA[0] + BALL_R, gA[1], 0]), gy = P([gA[0], gA[1] + BALL_R, 0]), g0 = P([gA[0], gA[1], 0]), rx = Math.hypot(gx[0] - g0[0], gx[1] - g0[1]), ry = Math.hypot(gy[0] - g0[0], gy[1] - g0[1]);
       // everything a drawing of the call needs, in the analysis picture's own measure
-      s.lc = { verdict, cm: Math.round(margin * 100), unc: Math.round(unc * 100), line: name, t: fr[0].t - 0.5 * step + ti * step, uv: [(contact[0] + x0) / k, (contact[1] + y0) / k], edge: [(mx + x0) / k, (my + y0) / k, dir[0], dir[1]], rpx: Math.max(rx, ry) / k, squash: Math.max(0.25, Math.min(1, Math.min(rx, ry) / (Math.max(rx, ry) || 1))), flat: ry > rx, n: chain.length, mPerPx: +mPerPx.toFixed(4), seen: hit.pre[hit.pre.length - 1][0] + 1 >= hit.post[0][0] };
+      s.lc = { verdict, cm: Math.round(margin * 100), unc: Math.round(unc * 100), line: name, t: fr[0].t + ti * step, uv: [(contact[0] + x0) / k, (contact[1] + y0) / k], edge: [(mx + x0) / k, (my + y0) / k, dir[0], dir[1]], rpx: Math.max(rx, ry) / k, squash: Math.max(0.25, Math.min(1, Math.min(rx, ry) / (Math.max(rx, ry) || 1))), flat: ry > rx, n: chain.length, mPerPx: +mPerPx.toFixed(4), seen: hit.pre[hit.pre.length - 1][0] + 1 >= hit.post[0][0] };
       if (debug) debug(s, { fr, w, h, x0, y0, k, spots, chain, bgY, line, contact, edgePts: near, bandPts, ib, why: '' });
     } catch (e) { s.lcWhy = 'error'; if (debug) console.error(e); }
     finally { if (onProgress) onProgress((li + 1) / list.length); } }

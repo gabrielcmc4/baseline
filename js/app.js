@@ -4,7 +4,7 @@ import { probe, grabFrame, decodeAll } from './decode.js';
 import { topView, sideView, fmtTime, resLabel, spinKind } from './report.js';
 import { cloudConfigured, initCloud, currentUser, signIn, signOut, listSessions, saveSession, removeSession, removeAll } from './cloud.js';
 import { sessionStats, pack, unpack, thumb, renderSessions, renderProgress } from './history.js';
-import { trimVideo } from './trim.js'; import { parseMp4 } from './decode.js';
+import { trimVideo } from './trim.js'; import { runReader } from './decode.js';
 import { reviewLines, applyReview } from './linecall.js'; import { renderVideo, canRender } from './render.js';
 import { strokeSides, strokeName } from './hand.js';
 const $ = id => document.getElementById(id);
@@ -89,14 +89,15 @@ async function sides(onP) { try { if (S.sideKey !== S.framesKey) { S.sideKey = S
     for (const q of todo) if (q.side !== undefined) S.sideCache.set(id(q), [q.side, q.sideM]); crumb('sides ' + todo.length + ' strokes, ' + todo.filter(q => q.side).length + ' told, ' + Math.round((performance.now() - t0) / 1000) + 's');
   } catch (e) { console.error(e); crumb('sides failed ' + (e && e.message)); } }
 // ---- line calls: balls that came down close to a line are looked at again in the full-size picture (see linecall.js)
-function fullGrabber() { const v = S.info.video, sc = Math.min(1, 2560 / Math.max(v.videoWidth, v.videoHeight)), w = Math.round(v.videoWidth * sc), h = Math.round(v.videoHeight * sc), c = document.createElement('canvas'), x = c.getContext('2d', { willReadFrequently: true }); c.width = w; c.height = h; let chain = Promise.resolve();
-  const seek = tm => new Promise(res => { tm = Math.min(Math.max(0, tm), Math.max(0, S.info.duration - 0.05)); if (Math.abs(v.currentTime - tm) < 1e-4 && !v.seeking) { res(); return; } let to = 0; const done = () => { v.removeEventListener('seeked', done); clearTimeout(to); res(); }; to = setTimeout(done, 4000); v.addEventListener('seeked', done); v.currentTime = tm; });
-  return tm => { const p = chain.then(async () => { await seek(tm); x.drawImage(v, 0, 0, w, h); return x.getImageData(0, 0, w, h); }); chain = p.catch(() => {}); return p; }; }
+// pictures for a close look, by going to each moment in the player (slow; used when the browser cannot decode the file directly)
+function seekRunner() { const v = S.info.video, sc = Math.min(1, 2560 / Math.max(v.videoWidth, v.videoHeight)), W = Math.round(v.videoWidth * sc), H = Math.round(v.videoHeight * sc), c = document.createElement('canvas'), x = c.getContext('2d', { willReadFrequently: true }), fps = Math.min(60, S.info.fps || 30);
+  const seek = tm => new Promise(res => { tm = Math.min(Math.max(0, tm), Math.max(0, S.info.duration - 0.05)); let to = 0; const done = () => { v.removeEventListener('seeked', done); clearTimeout(to); res(); }; to = setTimeout(done, 4000); v.addEventListener('seeked', done); v.currentTime = tm; });
+  return { W, H, fps, async run(t0, t1, r) { c.width = r.w; c.height = r.h; const out = []; for (let f = Math.round(t0 * fps); f <= Math.round(t1 * fps); f++) { const tm = (f + 0.5) / fps; await seek(tm); x.drawImage(v, -r.x, -r.y, W, H); out.push({ t: f / fps, data: x.getImageData(0, 0, r.w, r.h).data }); } return out; }, close() {} }; }
 async function lines(onP) { try { if (S.lineKey !== S.framesKey) { S.lineKey = S.framesKey; S.lineCache = new Map(); } const id = q => Math.round(q.t * 100), todo = [];
     const dbg = window.__baselineLineAll; /* test hook: review every bounce, against a named line */ for (const q of S.shots) { if ((!q.close && !dbg) || q.result === 'net') continue; const c = S.lineCache.get(id(q)); if (c) { q.lc = c.lc; q.lcWhy = c.why; if (q.lc) applyReview(q); } else todo.push(q); }
     if (!todo.length || !S.info || !S.info.video || !S.cal || window.__baselineNoLine) return; const t0 = performance.now(); try { S.info.video.pause(); } catch (e) {}
-    let fps = S.info.fps || 0; if (!fps && S.file) try { const m = await parseMp4(S.file); fps = m.n / (m.duration || 1); } catch (e) {} const v0 = S.info.video;
-    await reviewLines(todo, S.cal.cam, fullGrabber(), { fps: fps || 30, width: Math.round(v0.videoWidth * Math.min(1, 2560 / Math.max(v0.videoWidth, v0.videoHeight))), onProgress: onP, signal: S.abort ? S.abort.signal : null, all: !!dbg, everyLine: dbg || false });
+    let rd = null; try { if (S.file) rd = await runReader(S.file, { W: S.info.W, H: S.info.H }); } catch (e) { rd = null; } if (!rd) rd = seekRunner();
+    try { await reviewLines(todo, S.cal.cam, rd.run, { width: rd.W, height: rd.H, onProgress: onP, signal: S.abort ? S.abort.signal : null, all: !!dbg, everyLine: dbg || false }); } finally { rd.close(); }
     for (const q of todo) { S.lineCache.set(id(q), { lc: q.lc || null, why: q.lcWhy || '' }); if (q.lc) applyReview(q); } const why = {}; for (const q of todo) { const k = q.lc ? q.lc.verdict : q.lcWhy || '?'; why[k] = (why[k] || 0) + 1; }
     crumb('line calls ' + todo.length + ' close, ' + JSON.stringify(why) + ', ' + Math.round((performance.now() - t0) / 1000) + 's');
   } catch (e) { console.error(e); crumb('line calls failed ' + (e && e.message)); } }
