@@ -227,7 +227,7 @@ function draw() { const sh = vis(); topView($('top'), sh, S.sel, i => select(i, 
 function select(i, play) { S.sel = i; draw(); renderSel(play); }
 // what the second look at the line found, in words
 function lcNote(s) { if (s.lc) { const L = s.lc; return `<p class="lc"><b>${t('lcLine')}:</b> ${t('lcSay', { cm: Math.abs(L.cm), side: t(L.cm >= 0 ? 'lcSideIn' : 'lcSideOut'), unc: L.unc, line: t('ln' + L.line).toLowerCase() })}${L.verdict === 'close' ? ' · ' + t('lcTie') : ''}${L.seen === false ? ' · ' + t('lcBlind') : ''}</p>`; }
-  if (s.close && s.lcWhy && ['far', 'noball', 'nobounce', 'nopaint'].includes(s.lcWhy)) return `<p class="lc"><b>${t('lcLine')}:</b> ${t('lcWhy_' + s.lcWhy)}</p>`; return ''; }
+  if (s.close && s.lcWhy && ['far', 'gone', 'noball', 'nobounce', 'nopaint'].includes(s.lcWhy)) return `<p class="lc"><b>${t('lcLine')}:</b> ${t('lcWhy_' + s.lcWhy)}</p>`; return ''; }
 function renderSel(play) { const box = $('sel'); if (S.sel == null) { box.innerHTML = `<p class="help">${t('selHint')}</p>`; return; } const s = vis()[S.sel], kind = spinKind(s);
   const a = s.flatPath[s.flatPath.length - 1][1], b = s.path[s.path.length - 1][1], d = Math.abs(a - b);
   const expl = kind === 'flat' ? t('spinWeak', { d: num(d, 1) }) : t('spinExplain', { a: num(a, 1), b: num(b, 1), d: num(d, 1), k: t(kind), r: num(Math.round(Math.abs(s.rpm) / 50) * 50), s: num(Math.round(s.rpmSd / 50) * 50) });
