@@ -4,7 +4,7 @@ import { probe, grabFrame, decodeAll } from './decode.js';
 import { topView, sideView, fmtTime, resLabel, spinKind } from './report.js';
 import { cloudConfigured, initCloud, currentUser, signIn, signOut, listSessions, saveSession, removeSession, removeAll } from './cloud.js';
 import { sessionStats, pack, unpack, thumb, renderSessions, renderProgress } from './history.js';
-import { trimVideo } from './trim.js';
+import { trimVideo } from './trim.js'; import { parseMp4 } from './decode.js';
 import { reviewLines, applyReview } from './linecall.js'; import { renderVideo, canRender } from './render.js';
 import { strokeSides, strokeName } from './hand.js';
 const $ = id => document.getElementById(id);
@@ -95,7 +95,8 @@ function fullGrabber() { const v = S.info.video, sc = Math.min(1, 2560 / Math.ma
 async function lines(onP) { try { if (S.lineKey !== S.framesKey) { S.lineKey = S.framesKey; S.lineCache = new Map(); } const id = q => Math.round(q.t * 100), todo = [];
     const dbg = window.__baselineLineAll; /* test hook: review every bounce, against a named line */ for (const q of S.shots) { if ((!q.close && !dbg) || q.result === 'net') continue; const c = S.lineCache.get(id(q)); if (c) { q.lc = c.lc; q.lcWhy = c.why; if (q.lc) applyReview(q); } else todo.push(q); }
     if (!todo.length || !S.info || !S.info.video || !S.cal || window.__baselineNoLine) return; const t0 = performance.now(); try { S.info.video.pause(); } catch (e) {}
-    await reviewLines(todo, S.cal.cam, fullGrabber(), { fps: S.info.fps || (S.meta && S.meta.frames && S.meta.seconds ? S.meta.frames / S.meta.seconds : 30), onProgress: onP, signal: S.abort ? S.abort.signal : null, all: !!dbg, everyLine: dbg || false });
+    let fps = S.info.fps || 0; if (!fps && S.file) try { const m = await parseMp4(S.file); fps = m.n / (m.duration || 1); } catch (e) {} const v0 = S.info.video;
+    await reviewLines(todo, S.cal.cam, fullGrabber(), { fps: fps || 30, width: Math.round(v0.videoWidth * Math.min(1, 2560 / Math.max(v0.videoWidth, v0.videoHeight))), onProgress: onP, signal: S.abort ? S.abort.signal : null, all: !!dbg, everyLine: dbg || false });
     for (const q of todo) { S.lineCache.set(id(q), { lc: q.lc || null, why: q.lcWhy || '' }); if (q.lc) applyReview(q); } const why = {}; for (const q of todo) { const k = q.lc ? q.lc.verdict : q.lcWhy || '?'; why[k] = (why[k] || 0) + 1; }
     crumb('line calls ' + todo.length + ' close, ' + JSON.stringify(why) + ', ' + Math.round((performance.now() - t0) / 1000) + 's');
   } catch (e) { console.error(e); crumb('line calls failed ' + (e && e.message)); } }

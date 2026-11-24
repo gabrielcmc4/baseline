@@ -18,7 +18,7 @@ const linesFor = s => { const far = !s.far, y0 = far ? C.NET : 0, y1 = far ? C.L
 
 const linesAll = s => { const far = !s.far, y0 = far ? C.NET : 0, y1 = far ? C.LEN : C.NET, ySv = far ? C.LEN - C.SV : C.SV, sx = s.land[0] >= 0 ? 1 : -1; return [['baseline', 1, far ? C.LEN : 0, -C.D, C.D, far ? -1 : 1], ['service', 1, ySv, -C.S, C.S, far ? -1 : 1], ['side', 0, sx * C.S, y0, y1, -sx], ['centre', 0, 0, Math.min(ySv, C.NET), Math.max(ySv, C.NET), sx]]; }; // for trying the method out on any bounce
 
-export async function reviewLines(shots, cam, grab, { fps = 60, onProgress, signal, debug, all, everyLine } = {}) {
+export async function reviewLines(shots, cam, grab, { fps = 60, width, onProgress, signal, debug, all, everyLine } = {}) {
   const list = shots.filter(s => s.result !== 'net' && s.land && s.tLand > 0 && (all || s.close)).sort((a, b) => a.t - b.t);
   for (let li = 0; li < list.length; li++) { const s = list[li]; if (signal && signal.aborted) return; s.lc = null; s.lcWhy = '';
     try {
@@ -26,6 +26,7 @@ export async function reviewLines(shots, cam, grab, { fps = 60, onProgress, sign
       const sdx = Math.max(0.15, s.landSd ? s.landSd[0] : 0.3), sdy = Math.max(0.15, s.landSd ? s.landSd[1] : 0.5); let line = null, bestZ = Infinity;
       for (const l of (everyLine ? linesAll(s) : linesFor(s))) { const d = Math.abs(s.land[l[1]] - l[2]), z = d / (l[1] ? sdy : sdx); if (z < bestZ && (typeof everyLine !== 'string' || everyLine === l[0])) { bestZ = z; line = l; } }
       if (!line) { s.lcWhy = 'noline'; continue; }
+      if (width) { const kk = width / cam.W, X1 = [s.land[0], s.land[1], 0], X2 = X1.slice(); X2[line[1]] += 0.5; const a1 = cam.project(X1), a2 = cam.project(X2); if (0.5 / (kk * Math.hypot(a2[0] - a1[0], a2[1] - a1[1]) || 1e-9) > MAX_M_PER_PX) { s.lcWhy = 'far'; continue; } } // known before fetching any picture
       // where to look: around the fitted landing, wide enough for what the fit does not know (mostly depth), in full-size picture elements
       const tb = s.t + s.tLand, step = (fps > 75 ? Math.round(fps / 60) : 1) / Math.max(10, fps), first = await grab((Math.round(tb / step) + 0.5) * step); if (!first) { s.lcWhy = 'nopic'; continue; }
       const k = first.width / cam.W, P = X => { const q = cam.project(X); return [q[0] * k, q[1] * k]; }, c0 = P([s.land[0], s.land[1], 0]);
