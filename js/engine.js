@@ -633,7 +633,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       const sum = flightSummary(x); if (!sum.land) continue;
       const sd = covariance(fit, y => { const w = flightSummary(y); return [w.land ? w.land[0] : 0, w.land ? w.land[1] : 0, w.net ? w.net[2] : 0, y[6]]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9]; if (sd[1] > (ground ? 3 : 1.5)) continue; // without a visible bounce the depth of an incoming ball is only trusted when the fit is tight
       const C = COURT, [lx, ly] = sum.land, serve = x[2] > 2.0 && x[1] > C.LEN - 2; let result, target = null;
-      const past = x[1] < C.NET + 0.3; // first seen when it was already at the net: it did get over
+      const past = x[1] < C.NET + 0.3 || (ground && ground[1] < C.NET - 0.3); // first seen when it was already at the net, or seen bouncing on the camera's side: it did get over
       if (!past && (!sum.net || sum.clear < 0)) result = 'net';
       else if (mode === 'serve' || serve) { const left = x[0] > 0; target = left ? 'left' : 'right'; const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly >= C.SV) ? 'in' : (ly < C.SV ? 'long' : 'wide'); }
       else result = (Math.abs(lx) <= C.S && ly >= 0) ? 'in' : (ly < 0 ? 'long' : 'wide');
