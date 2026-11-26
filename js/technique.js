@@ -14,7 +14,7 @@ const pct = v => Math.round(100 * v) + '%';
 const m1 = v => (Math.abs(v) < 2 ? Math.round(v * 100) / 100 : Math.round(v * 10) / 10).toLocaleString(getLang() === 'pt' ? 'pt-BR' : 'en-GB') + ' m';
 const sec = v => (Math.round(v * 100) / 100).toLocaleString(getLang() === 'pt' ? 'pt-BR' : 'en-GB') + ' s';
 // the best example of a group (in, fast, deep) and the worst (not in)
-const bestOf = a => a.filter(q => q.result === 'in').sort((x, y) => (y.speed + 3 * y.land[1]) - (x.speed + 3 * x.land[1]))[0] || null;
+const bestOf = a => (a.filter(q => q.result === 'in' && !q.close && !q.approx).length ? a.filter(q => q.result === 'in' && !q.close && !q.approx) : a.filter(q => q.result === 'in')).sort((x, y) => (y.speed + 3 * y.land[1]) - (x.speed + 3 * x.land[1]))[0] || null;
 const worstOf = a => a.filter(q => q.result !== 'in').sort((x, y) => x.speed - y.speed)[0] || null;
 
 // The rule base: for each note, the finding (with the numbers) and the fix and a drill, in both languages.
