@@ -604,7 +604,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     if (!sum.net || sum.clear < 0 || netDoubt) result = 'net'; else { const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
     let close = netDoubt; if (result !== 'net') { const xs = left ? [-C.S, 0] : [0, C.S]; close = Math.abs(ly - (C.LEN - C.SV)) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
     const rpm = spinFromCl(x[6], v0), rpmHi = spinFromCl(x[6] + sd[3], v0), rpmLo = spinFromCl(x[6] - sd[3], v0); for (const i of idx) usedS.add(i);
-    shots.push({ t: t0, who: 'me', far: false, approx: blind, bounce: !!(ground || groundAt), n: pts.length, nTotal: pts.length, rms: fit.rms, rmsFlat: null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
+    shots.push({ t: t0, who: 'me', far: false, viaToss: true, approx: blind, bounce: !!(ground || groundAt), n: pts.length, nTotal: pts.length, rms: fit.rms, rmsFlat: null, p0: x.slice(0, 3), v0: x.slice(3, 6), speed, cl: x[6], clSd: sd[3], rpm, rpmSd: Math.abs(rpmHi - rpmLo) / 2,
       land: [lx, ly], landSd: [sd[0], sd[1]], net: sum.net, clear: sum.clear, clearSd: sd[2], tLand: sum.tLand, result, close, netHit: false, netZ: null, serve: true, target, feetY: null,
       path: sum.path, flatPath: flightSummary([...x.slice(0, 6), 0]).path, px: uv }); }
   ms.serve = Date.now() - T0;
@@ -651,6 +651,8 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
   if (clicks && clicks.length && !only && mode !== 'serve') { const sm = meta.sound = { clicks: clicks.length, off: 0, open: 0, tried: 0, kept: 0, log: [] };
     { const d = []; for (const q of shots) if (!q.far && q.hit) { let b = null; for (const c of clicks) if (Math.abs(q.t - c.t) < 0.3 && (b == null || Math.abs(q.t - c.t) < Math.abs(b))) b = q.t - c.t; if (b != null) d.push(b); } // the picture's clock against the sound's: the hits seen in both
       if (d.length >= 5) { d.sort((a, b) => a - b); sm.off = Math.max(-0.2, Math.min(0.2, d[d.length >> 1])); } sm.pairs = d.length; }
+    // A "serve" found from a track that starts high (see the near-serve pass above) with no click at its start but a click 0.3 to 1.3 s before is a ball caught late after an ordinary stroke (checked on the match: a forehand at 0:49 read as a 123 km/h serve at 0:50, and serves at 180-207 km/h): it goes, and the click before it gets its turn below.
+    if (sm.pairs >= 5) for (let i = shots.length - 1; i >= 0; i--) { const q = shots[i]; if (!q.viaToss) continue; const at = clicks.some(c => c.t + sm.off > q.t - 0.3 && c.t + sm.off < q.t + 0.05), early = clicks.some(c => c.t + sm.off > q.t - 1.3 && c.t + sm.off <= q.t - 0.3); if (!at && early) { shots.splice(i, 1); sm.unserved = (sm.unserved || 0) + 1; } }
     const near0 = shots.filter(q => !q.far), farH = shots.filter(q => q.far && q.tHit != null).map(q => q.tHit), usedR = new Set();
     const backBy = (x, dt) => { const p = x.slice(0, 3), v = x.slice(3, 6), steps = Math.max(1, Math.ceil(dt * 240)), h = -dt / steps; for (let k = 0; k < steps; k++) rk4(p, v, x[6] || 0, h); return [...p, ...v, x[6] || 0]; };
     for (const c of clicks) { const tc = c.t + sm.off; if (near0.some(q => q.t > tc - 0.35 && q.t < tc + 0.6) || farH.some(t => Math.abs(t - tc) < 0.2)) continue; sm.open++;
