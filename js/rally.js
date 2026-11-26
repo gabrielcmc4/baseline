@@ -20,14 +20,16 @@ export function findRallies(shots, mode = 'match') {
     if (p) {
       // the other player hit it back before a second bounce. The call does not matter (players do play balls that were out, and a call can be wrong), and neither does a "serve" label: nobody serves within a second of the ball coming over
       if (p.who !== h.who) keep = h.t - p.t > 0.3 && (!p.b || h.t <= p.b.t2 + MARGIN);
-      else keep = !h.s.serve && h.t - p.t < 3.6 && p.b && h.t > p.b.t1; // the same player twice: the other's hit in between was missed (not seen), if it came in time
+      else if (!h.s.serve && p.b) keep = p.s.returned === true ? h.t <= p.b.t2 + 2.6 // the same player twice: the other one did send the ball back (seen going up the picture) but his shot could not be measured
+        : p.s.returned === false ? false // the ball was not sent back: whatever comes next is new
+        : h.t - p.t < 3.6 && h.t > p.b.t1; // not known (the near player's shots): the other's hit in between was missed, if it came in time
     }
     if (keep) cur.push(h); else { cur = [h]; groups.push(cur); } }
   const out = []; for (const g of groups) { const first = g[0].s, solo = g.length === 1;
-    const between = mode === 'match' && solo && !first.serve && first.far; // a lone ball from the far end that is not a serve: sent back between points (a lone ball of the near player is kept: his own serve may not have been recognised)
+    const between = mode === 'match' && solo && !first.serve && first.far && !first.returned; // a lone ball from the far end that is not a serve and that nobody sent back: hit over between points (a lone ball of the near player is kept: his own serve may not have been recognised)
     for (const h of g) { h.s.rally = between ? null : out.length; h.s.between = between; }
     if (between) continue;
-    let missed = 0; for (let i = 1; i < g.length; i++) if (g[i].who === g[i - 1].who) missed++;
+    let missed = 0; for (let i = 1; i < g.length; i++) if (g[i].who === g[i - 1].who) missed++; if (g[g.length - 1].s.returned) missed++; // played back, but that last shot was not measured
     const last = g[g.length - 1];
     out.push({ n: out.length, start: g[0].t, end: (last.b ? last.b.t1 : last.t + 1), shots: g.length + missed, seen: g.length, missed, serve: !!first.serve,
       endedBy: last.s.result === 'in' ? 'in' : last.s.result, lastBy: last.who, fastest: Math.max(...g.map(h => h.s.speed || 0)), mean: g.reduce((a, h) => a + (h.s.speed || 0), 0) / g.length, idx: g.map(h => shots.indexOf(h.s)) }); }
