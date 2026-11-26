@@ -60,6 +60,11 @@ Security choices:
 
 [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3-Clause). Fonts: Marcellus and Jost (SIL Open Font License).
 
+## What changed on 2026-11-26 (night): technique notes, and switches for the slow extras
+
+- **Technique: what works for you** (`js/technique.js`, phase 1, no body tracking). For the user's own shots: contact height (waist to chest band), contact depth against the baseline, time after the incoming bounce, margin over the net, spin, recovery 1.2 s later; serves: first vs second (a second serve follows a missed one with no shot of his in between), toss top and spread, contact height within first serves. Groups of at least 8 shots, a share difference of 12 points or more and a two-proportion z of 1 ("trend") or 1.65 ("clear"). When his numbers go against the usual advice, the advice is withheld and the best and a missed example are offered. The engine now stores `feet` (where he stood at the shot), `rec` (1.2 s later) and `toss` (top of the toss on the plane of the hit) for his shots; all three are kept in the history.
+- **Switches** in step 1 for the line review and forehand/backhand, the only stages after the fit (14 % and 9 % of a 530 s run on a 19-minute match); both can be run later from the report.
+
 ## What changed on 2026-11-26 (later): shots heard but not seen leaving the racket
 
 Near the camera the ball often leaves the racket blurred, behind the player or out of the picture; the tracker finds it 0.1-0.4 s later, high or deep, and with no hit and no sensible start the shot was thrown away. `js/sound.js` now reads the file's own sound (plain PCM from .MOV, AAC through `AudioDecoder`) while the pictures are read and finds racket clicks (sharp jumps above 1.5 kHz). In `analyze()` (option `clicks`), each click with no shot near it and a ball going away within 0.45 s gets a flight fitted with the hit pinned at the click: waist high where the player stands, or where the opponent's previous ball had got to by then, or 2.6 m over the baseline for a serve at the start of a point. The picture/sound clock offset is the median over hits seen in both. Such shots carry `heard: true`.

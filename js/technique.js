@@ -40,7 +40,7 @@ const T = {
     szT: 'Altura do contato no saque', sz: (o) => `Contato a ${m1(o.m)} na mediana. Acima disso, ${pct(o.inA)} dentro; abaixo, ${pct(o.inB)} (${o.nA} contra ${o.nB}).`,
     szFix: 'Bata no ponto mais alto que alcança, com o braço esticado e o corpo subindo (empurre o chão com as pernas na posição de troféu).', szDrill: 'saques de joelhos em frente a uma parede para sentir o braço todo estendido; depois a posição de troféu parada por 1 s antes de subir.',
     revFix: 'Aqui os seus números vão contra o que os treinadores costumam recomendar. Pode haver outra causa (o tipo de bola, defesas, bolas altas, a velocidade): compare os dois exemplos no vídeo antes de mudar algo.',
-    title: 'Técnica: o que funciona para você', shots: 'golpes', fixL: 'Correção', drillL: 'Treino', best: 'Ver o melhor', worst: 'Ver um que não entrou', few: 'Ainda poucos golpes deste tipo para comparar (precisa de 8 em cada grupo).', none: 'Nada a apontar com os golpes desta sessão.', quiet: 'Sem diferença clara entre os seus golpes em:',
+    title: 'Técnica: o que funciona para você', shots: 'golpes', fixL: 'Correção', revL: 'Atenção', drillL: 'Treino', best: 'Ver o melhor', worst: 'Ver um que não entrou', few: 'Ainda poucos golpes deste tipo para comparar (precisa de 8 em cada grupo).', none: 'Nada a apontar com os golpes desta sessão.', quiet: 'Sem diferença clara entre os seus golpes em:',
     intro: 'Comparações entre os seus próprios golpes desta sessão, e o que os treinadores recomendam. É uma correlação numa sessão, não uma prova de causa: use como pista e confira no vídeo.' },
   en: { fh: 'Forehand', bh: 'Backhand', stroke: 'Groundstrokes (side not told)', serve: 'Serve',
     clear: 'clear', hint: 'trend',
@@ -63,7 +63,7 @@ const T = {
     szT: 'Serve contact height', sz: (o) => `Contact at a median ${m1(o.m)}. Above that, ${pct(o.inA)} in; below, ${pct(o.inB)} (${o.nA} against ${o.nB}).`,
     szFix: 'Hit at the highest point you can reach, arm straight and body rising (push off the ground from the trophy position).', szDrill: 'serves from your knees facing a wall to feel the arm fully extended; then hold the trophy position 1 s before going up.',
     revFix: 'Here your numbers go against what coaches usually recommend. Something else may be behind it (the kind of ball, defensive shots, high balls, pace): compare the two examples on the video before changing anything.',
-    title: 'Technique: what works for you', shots: 'shots', fixL: 'Fix', drillL: 'Drill', best: 'See the best', worst: 'See one that missed', few: 'Not enough shots of this kind to compare yet (8 per group needed).', none: 'Nothing to point out from this session\'s shots.', quiet: 'No clear difference between your shots in:',
+    title: 'Technique: what works for you', shots: 'shots', fixL: 'Fix', revL: 'Note', drillL: 'Drill', best: 'See the best', worst: 'See one that missed', few: 'Not enough shots of this kind to compare yet (8 per group needed).', none: 'Nothing to point out from this session\'s shots.', quiet: 'No clear difference between your shots in:',
     intro: 'Comparisons between your own shots in this session, and what coaches recommend. A link within one session is not proof of cause: take it as a lead and check it on the video.' } };
 export const tx = k => (T[getLang()] || T.pt)[k];
 
