@@ -153,6 +153,8 @@ export class Detector {
     }
     this.bufs = []; this.mask = new Uint8Array(W * H); this.kind = new Uint8Array(W * H); this.mt = 15; this.n = 0; this.shift = [0, 0]; this.valid = true; this.maxShift = 0; this.busy = 0; this.dropped = 0;
     this.ref = refPts || []; this.refScore = null; this.cw = Math.ceil(W / 4); this.ch = Math.ceil(H / 4); this.coarse = new Uint16Array(this.cw * this.ch);
+    // How big a ball is at each row of the picture, if it is about waist high there (near the camera it is many pixels wide, and blurred by its speed): blobs up to a few ball widths pass there, where elsewhere only small ones do.
+    this.ballD = new Float32Array(H); for (let y = 0; y < H; y++) { const d = cam.ray(W / 2, y); let D = 0; if (d[2] < -1e-3 && cam.C[2] > 1) { const k = (1 - cam.C[2]) / d[2]; D = 2 * 0.0335 * cam.f / Math.max(0.5, k * Math.hypot(d[0], d[1], d[2])); } this.ballD[y] = D; }
   }
   // grey picture, lightly blurred (1-2-1 across, then 1-2-1 down: the same result as 3x3 weights in one go, at a third of the work)
   _gray(rgba) { const W = this.W, H = this.H, N = W * H; if (this.fx === undefined) this._fast();
@@ -241,8 +243,9 @@ export class Detector {
       for (const o0 of hits) for (const st of [o0 - W - 1, o0]) { if (mask[st] !== 1) continue; let a = 0, sx = 0, sy = 0, x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; stack.push(st); mask[st] = 2;
         let strict = 0; while (stack.length) { const o = stack.pop(), x = o % W, y = (o / W) | 0; a++; sx += x; sy += y; strict += this.kind[o]; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
           for (const q of [o - 1, o + 1, o - W, o + W, o - W - 1, o - W + 1, o + W - 1, o + W + 1]) if (q >= 0 && q < mask.length && mask[q] === 1) { mask[q] = 2; stack.push(q); } }
-        if (!strict && (x1 - x0 > 11 * this.s || y1 - y0 > 11 * this.s)) continue; // only a small blob may pass on the weaker colour test
-        if (a >= 3 && a <= amax && x1 - x0 < mxs && y1 - y0 < mxs) { const q = [sx / a - c.shift[0], sy / a - c.shift[1], a]; out.c2.push(q); if (strict) out.c.push(q); } }
+        const bd = this.ballD[(sy / a) | 0] || 0, weak = Math.max(11 * this.s, 2.5 * bd), big = Math.max(mxs, 4 * bd), bigA = Math.max(amax, 3 * bd * bd); // near the camera a ball, smeared by its speed, is a big blob even when its colour is washed out
+        if (!strict && (x1 - x0 > weak || y1 - y0 > weak)) continue; // only a ball-sized blob may pass on the weaker colour test
+        if (a >= 3 && a <= bigA && x1 - x0 < big && y1 - y0 < big) { const q = [sx / a - c.shift[0], sy / a - c.shift[1], a]; out.c2.push(q); if (strict) out.c.push(q); } }
       for (const o of hits) { this.kind[o] = 0; mask[o - W - 1] = mask[o - W] = mask[o - W + 1] = mask[o - 1] = mask[o] = mask[o + 1] = mask[o + W - 1] = mask[o + W] = mask[o + W + 1] = 0; }
       // There is one ball. When many things light up at once (the camera shook, wind in the trees) they come in clumps; a ball is on its own. In such a frame keep only what stands alone.
       if (out.c2.length > 8) { const L = out.c2, R2 = (45 * this.s) ** 2, lone = q => { let n = 0; for (const r of L) { const dx = r[0] - q[0], dy = r[1] - q[1]; if (dx * dx + dy * dy < R2 && ++n > 2) return false; } return true; }; // n counts q itself too: at most one neighbour allowed
