@@ -210,3 +210,5 @@ footer .nerd:hover{color:var(--espresso)}
 
 label.check{display:flex;align-items:flex-start;gap:.5rem;font-size:.93rem;color:var(--saddle);flex-basis:100%}label.check input{accent-color:var(--saddle);margin-top:.2rem;width:1.05rem;height:1.05rem;flex:none}
 .sel .lc{margin:.2rem 0 .6rem;font-size:.93rem;color:var(--ink2)}.sel .lc b{color:var(--espresso);font-weight:500}
+
+.extras{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:.9rem 1.5rem;margin:.25rem 0 1.5rem}.extras .switch{align-items:flex-start}.extras .switch b{display:block;font-weight:600}.extras .switch i{display:block;font-style:normal;color:var(--ink2);font-size:.9rem}.extras .switch .track{margin-top:.15rem}

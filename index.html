@@ -50,6 +50,12 @@
     <label><input type="radio" name="mode" value="serve"><span><b data-i18n="serve"></b><i data-i18n="serveD"></i></span></label>
     <label><input type="radio" name="mode" value="match"><span><b data-i18n="match"></b><i data-i18n="matchD"></i></span></label>
   </div>
+  <h2 data-i18n="extrasTitle"></h2>
+  <p class="hint" data-i18n="extrasHint"></p>
+  <div class="extras">
+    <label class="switch"><input type="checkbox" id="optLines" checked><span class="track" aria-hidden="true"></span><span><b data-i18n="optLines"></b><i data-i18n="optLinesD"></i></span></label>
+    <label class="switch"><input type="checkbox" id="optSides" checked><span class="track" aria-hidden="true"></span><span><b data-i18n="optSides"></b><i data-i18n="optSidesD"></i></span></label>
+  </div>
   <details class="tips"><summary data-i18n="tipsTitle"></summary><ul data-i18n-list="tips"></ul></details>
 </section>
 
@@ -87,6 +93,7 @@
     <label class="switch"><input type="checkbox" id="farMe"><span class="track" aria-hidden="true"></span><span data-i18n="farMe"></span></label>
     <span class="hint" data-i18n="sessionKindHint"></span><span id="modeMsg" class="msg"></span><span class="hint" id="modeNote" hidden></span>
   </div>
+  <div class="noprint toolbar" id="laterRow" hidden><span class="hint" data-i18n="laterHint"></span><button class="btn" id="laterLines" data-i18n="laterLines" hidden></button><button class="btn" id="laterSides" data-i18n="laterSides" hidden></button><span id="laterMsg" class="msg"></span></div>
   <div class="row who2 noprint" id="who2" hidden></div>
   <p class="filtnote noprint" id="filtNote" hidden></p>
   <div class="stats" id="stats"></div>
