@@ -106,10 +106,11 @@ async function lines(onP) { try { if (S.lineKey !== S.framesKey) { S.lineKey = S
   } catch (e) { console.error(e); crumb('line calls failed ' + (e && e.message)); } }
 // ---- body movement around the player's own shots, for the technique notes (see body.js): the full-size picture cut around him, a pose model in the browser
 async function bodies(onP) { try { if (S.bodyKey !== S.framesKey) { S.bodyKey = S.framesKey; S.bodyCache = new Map(); } const id = q => Math.round(q.t * 100), todo = [], opp = S.shots.filter(q => q.far).sort((a, b) => a.t - b.t);
-    for (const q of S.shots) { if (q.far) continue; const c = S.bodyCache.get(id(q)); if (c) { q.body = c; continue; } let p = null; for (const o of opp) { if (o.t >= q.t) break; p = o; } if (p && p.tLand) q.tb = p.t + p.tLand; todo.push(q); }
+    const own = q => { if (!q.serve && q.body && q.body.side != null && Math.abs(q.body.side) >= 0.4) { q.side = q.body.side > 0 ? 'R' : 'L'; q.sideBy = 'pose'; } }; // where the hands are at contact tells forehand from backhand better than the trunk outline (match: 54 forehands and 20 backhands by the hands, 69 and 6 by the outline; checked by eye)
+    for (const q of S.shots) { if (q.far) continue; const c = S.bodyCache.get(id(q)); if (c) { q.body = c; own(q); continue; } let p = null; for (const o of opp) { if (o.t >= q.t) break; p = o; } if (p && p.tLand) q.tb = p.t + p.tLand; todo.push(q); }
     if (!todo.length || !S.file || !S.cal) return; const t0 = performance.now(); let rd = null; try { rd = await runReader(S.file, { W: S.info.W, H: S.info.H }); } catch (e) { rd = null; } if (!rd) { crumb('body: no reader'); return; }
     try { await bodyMoves(todo, S.cal.cam, rd, { wW: S.info.W, wH: S.info.H, onProgress: onP, signal: S.abort ? S.abort.signal : null }); } finally { rd.close(); }
-    for (const q of todo) if (q.body) S.bodyCache.set(id(q), q.body); crumb('body ' + todo.length + ' shots, ' + todo.filter(q => q.body && q.body.n >= 5).length + ' seen, ' + Math.round((performance.now() - t0) / 1000) + 's');
+    for (const q of todo) { if (q.body) S.bodyCache.set(id(q), q.body); own(q); } crumb('body ' + todo.length + ' shots, ' + todo.filter(q => q.body && q.body.n >= 5).length + ' seen, ' + Math.round((performance.now() - t0) / 1000) + 's');
   } catch (e) { console.error(e); crumb('body failed ' + (e && e.message)); } }
 window.__baselineRelines = async () => { S.lineCache = new Map(); await lines(); renderReport(); return S.shots.map(q => q.lc || q.lcWhy || null); };
 // ---- demonstration: a real analysed session shipped with the site, for a visitor without a video
