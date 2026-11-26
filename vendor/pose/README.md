@@ -1,0 +1,1 @@
+MediaPipe Pose (JavaScript solution) 0.5.1675469404, from the npm package `@mediapipe/pose`, Copyright Google LLC, Apache License 2.0 (https://www.apache.org/licenses/LICENSE-2.0). Only the lite landmark model and the SIMD WebAssembly build are kept. Loaded by `js/body.js` only when the user switches on the body-movement analysis; it runs in the browser, nothing is sent anywhere.
