@@ -6,7 +6,7 @@ import { cloudConfigured, initCloud, currentUser, signIn, signOut, listSessions,
 import { sessionStats, pack, unpack, thumb, renderSessions, renderProgress } from './history.js';
 import { trimVideo } from './trim.js'; import { runReader } from './decode.js';
 import { reviewLines, applyReview } from './linecall.js'; import { renderVideo, canRender } from './render.js';
-import { strokeSides, strokeName } from './hand.js'; import { findClicks } from './sound.js';
+import { strokeSides, strokeName } from './hand.js'; import { findClicks } from './sound.js'; import { techniqueNotes, tx } from './technique.js';
 const $ = id => document.getElementById(id);
 const S = { file: null, info: null, img: null, lines: {}, raw: {}, pending: [], active: 'baseline', cal: null, shots: [], sel: null, mode: 'coach', abort: null, url: null };
 // the two extras that go back to the video after the flights are fitted (the slow part of the wait after reading): on unless the user switched them off; remembered in this browser
@@ -214,7 +214,16 @@ $('trimGo').onclick = async () => { const msg = $('trimMsg'), dl = $('trimDl'), 
     dl.href = S.trimUrl; dl.download = (S.file.name || 'video').replace(/\.[^.]+$/, '') + ' - baseline.mp4'; dl.textContent = t('trimDone', { mb: num(r.blob.size / 1e6, 0), dur: fmtTime(r.seconds) }); dl.hidden = false; msg.textContent = (fell ? t('fxFell') + ' ' : '') + (r.codec ? t('fxInfo', { n: r.segments }) : t('trimInfo', { n: r.segments })) + (r.sound ? '' : ' ' + t('noSound')); msg.classList.add('good'); crumb('trim ' + r.segments + ' clips ' + Math.round(r.seconds) + 's ' + Math.round(r.blob.size / 1e6) + 'MB sound ' + r.sound); window.__baselineTrim = r; }
   catch (e) { console.error(e); crumb('trim failed ' + e.message); msg.textContent = t('trimFail'); msg.classList.add('bad'); }
   $('trimGo').disabled = false; };
-function renderReport(keep) { if (keep !== true) { renderMode(); renderLater(); renderWho(); renderTrim(); } const all = base(), stats = $('stats'); $('demoBar').hidden = !S.demo; renderFilters(all, keep === true); const sh = vis(); stats.innerHTML = ''; updateSavebar();
+// technique notes (phase 1, from the flights only; see technique.js): the user's own shots, with the opponent's for the timing after the bounce
+function renderTech() { const panel = $('techPanel'), box = $('tech'); if (S.demo || (two() && (S.view || 'me') !== 'me')) { panel.hidden = true; return; } const R = techniqueNotes(S.shots, q => strokeName(q, S.left)); panel.hidden = !R.length; box.innerHTML = ''; if (!R.length) return; $('techTitle').textContent = tx('title'); $('techIntro').textContent = tx('intro');
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+  const show = q => { if (!vis().includes(q)) { S.filt = newFilt(); renderReport(true); } const i = vis().indexOf(q); if (i >= 0) { select(i, true); $('sel').scrollIntoView({ behavior: 'smooth', block: 'center' }); } };
+  for (const g of R) { const d = el('div', 'tgroup'), h = el('h3', null, g.title); h.appendChild(el('span', null, g.n + ' ' + tx('shots'))); d.appendChild(h); if (!g.notes.length) d.appendChild(el('p', 'help', tx('none')));
+    for (const n of g.notes) { const c = el('div', 'tnote' + (n.rev ? ' rev' : n.level === 'info' ? ' info' : '')), top = el('div'); top.appendChild(el('b', null, n.title)); if (n.level !== 'info') top.appendChild(el('span', 'lvl', tx(n.level))); c.appendChild(top); c.appendChild(el('p', null, n.text));
+      const f = el('p', 'fix'); f.appendChild(el('span', null, tx('fixL') + ': ')); f.appendChild(document.createTextNode(n.fix)); c.appendChild(f); if (n.drill) { const r = el('p', 'drill'); r.appendChild(el('span', null, tx('drillL') + ': ')); r.appendChild(document.createTextNode(n.drill)); c.appendChild(r); }
+      if (n.best || n.worst) { const row = el('div', 'row noprint'); for (const [k, q] of [['best', n.best], ['worst', n.worst]]) if (q) { const b = el('button', 'btn', tx(k)); b.type = 'button'; b.onclick = () => show(q); row.appendChild(b); } c.appendChild(row); } d.appendChild(c); }
+    box.appendChild(d); } }
+function renderReport(keep) { if (keep !== true) { renderMode(); renderLater(); renderWho(); renderTrim(); renderTech(); } const all = base(), stats = $('stats'); $('demoBar').hidden = !S.demo; renderFilters(all, keep === true); const sh = vis(); stats.innerHTML = ''; updateSavebar();
   const hn = $('accHand'), sideCam = !S.fromHistory && S.cal && S.cal.cam && Math.abs(S.cal.cam.C[0]) > COURT.D + 1 && all.some(q => !q.far && !q.serve) && all.filter(q => q.side).length < 0.3 * all.filter(q => !q.far && !q.serve).length; hn.hidden = !sideCam && !all.some(q => q.side); hn.textContent = hn.hidden ? '' : t(sideCam ? 'handNoteSide' : 'handNote');
   if (!sh.length) { stats.innerHTML = `<div><span>${t(all.length ? 'filtNone' : 'noShots')}</span></div>`; $('top').innerHTML = $('side').innerHTML = $('tbl').innerHTML = $('sel').innerHTML = $('legend').innerHTML = ''; syncPick(); return; }
   const nIn = sh.filter(s => s.result === 'in').length, over = sh.filter(s => s.result !== 'net');
