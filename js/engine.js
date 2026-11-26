@@ -236,8 +236,15 @@ export class Detector {
         if (this.maxShift >= 4) { const pg = p.g, ng = nx.g, o1 = o + op, o2 = o + on; let m1 = 255, m2 = 255; for (let dy = -W; dy <= W; dy += W) for (let dx = -1; dx <= 1; dx++) { let v = a - pg[o1 + dy + dx]; if (v < 0) v = -v; if (v < m1) m1 = v; v = a - ng[o2 + dy + dx]; if (v < 0) v = -v; if (v < m2) m2 = v; } if (m1 <= MT || m2 <= MT) continue; }
         if (ok) { hits.push(o); this.kind[o] = 1; } else hits.push(o); } }
     const out = { t: c.t, c: [], c2: [], fb: [], blobs: [], valid: c.valid, cut: c.cut }; if (c.rep) out.rep = c.rep; if (c.shift[0] || c.shift[1]) out.sh = c.shift; /* how far the picture had slipped from the calibration picture (the spots below are already given without it) */ if (c.rc) out.rc = 1; if (c.valid) this._far(c, out); else out.fb = null; // c: blobs with clear ball colour; c2: also small blobs that only pass the weaker test
-    if (!(c.valid && hits.length < 4000)) for (const o of hits) this.kind[o] = 0; if (hits.length >= 4000) this.busy++; // too much of the picture moving at once (wind in trees, camera knocked): the frame cannot be used
-    if (c.valid && hits.length < 4000) {
+    // Too much of the picture moving at once (wind in trees, camera knocked): the frame cannot be used. But a player close to the camera, swinging, is a big moving area by himself, and it is in exactly those frames that his ball leaves the racket: what moves inside a player-sized moving area does not count towards "too much".
+    let nOut = hits.length; if (nOut >= 4000) { const cg = this.coarse, big = this._bigCell || (this._bigCell = new Uint8Array(cg.length)), seenC = this._seenC || (this._seenC = new Uint8Array(cg.length)), st = [], chh = this.ch; big.fill(0); seenC.fill(0);
+      for (let i = 0; i < cg.length; i++) { if (cg[i] < 3 || seenC[i]) continue; const cells = []; st.push(i); seenC[i] = 1; while (st.length) { const o = st.pop(), x = o % cw, y = (o / cw) | 0; cells.push(o); for (let yy = y - 2; yy <= y + 2; yy++) for (let xx = x - 2; xx <= x + 2; xx++) { if (xx < 0 || yy < 0 || xx >= cw || yy >= chh) continue; const q = yy * cw + xx; if (cg[q] >= 3 && !seenC[q]) { seenC[q] = 1; st.push(q); } } }
+        let x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; for (const o of cells) { const x = o % cw, y = (o / cw) | 0; if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        if (cells.length >= 25 && (x1 - x0 + 1) * (y1 - y0 + 1) < 0.25 * cw * chh) for (const o of cells) big[o] = 1; } // one compact moving area (a person), not half the picture
+      nOut = 0; for (const o of hits) { const y = (o / W) | 0, x = o - y * W; if (!big[(y >> 2) * cw + (x >> 2)]) nOut++; } }
+    const busyF = nOut >= 4000;
+    if (!(c.valid && !busyF)) for (const o of hits) this.kind[o] = 0; if (busyF) this.busy++;
+    if (c.valid && !busyF) {
       for (const o of hits) { mask[o - W - 1] = mask[o - W] = mask[o - W + 1] = mask[o - 1] = mask[o] = mask[o + 1] = mask[o + W - 1] = mask[o + W] = mask[o + W + 1] = 1; }
       const stack = [], mxs = 45 * this.s, amax = 500 * this.s * this.s;
       for (const o0 of hits) for (const st of [o0 - W - 1, o0]) { if (mask[st] !== 1) continue; let a = 0, sx = 0, sy = 0, x0 = 1e9, x1 = -1, y0 = 1e9, y1 = -1; stack.push(st); mask[st] = 2;
