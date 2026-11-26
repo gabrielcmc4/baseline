@@ -60,6 +60,15 @@ Security choices:
 
 [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3-Clause). Fonts: Marcellus and Jost (SIL Open Font License).
 
+## What changed on 2026-11-26 (late night): body movement (phase 2 of the technique notes)
+
+- `js/body.js` + `vendor/pose` (MediaPipe Pose 0.5 JavaScript solution, Apache-2.0, lite model, SIMD build, 12 MB, loaded only when used). Third switch in step 1, off by default, also available later from the report. For each of the player's own shots the full-size picture is cut around him (from `feet`, the court position the engine records) and shown to the pose model 15 times a second from 0.8 s before (serve 1.1 s) to 0.5 s after the hit. Stored per shot as `body` (and in the history): shoulder turn at the incoming bounce (`turnB`, degrees, 0 = square, 90 = side-on), max turn before the hit, turn at contact, deepest knee angle, finish (racket hand above the shoulders, in body lengths), serve hand height and elbow angle at contact, and `side` (hands across the body at contact).
+- Cutting around the player is what makes it work: on a lesson video the body was found in 1 picture in 5 on the whole frame and in 80 of 80 cut around him. On the 19-minute match: 123 shots in 105 s.
+- Forehand/backhand: with body movement on, a stroke's side comes from the hands at contact when clear (match: 54 forehands / 20 backhands, against 69 / 6 from the trunk outline; backhands checked on the video).
+- New notes: shoulders turned by the bounce, knee bend, finish; serve: knee bend at the trophy position, hand height at contact.
+- Frame reader (`runReader`): draws only the window asked for, for every stored rotation, and can hand back bitmaps cut on the graphics card and keep only a few pictures a second (the match is stored upside down; drawing every whole 1080p picture was 13 s a shot).
+- Engine: a "serve" found from a track that starts high, with no racket click at its start but one 0.3-1.3 s before, is a stroke caught late (a forehand at 0:49 had become a 123 km/h serve at 0:50; "serves" at 180-207 km/h); it is dropped and the earlier click may take that track.
+
 ## What changed on 2026-11-26 (night): technique notes, and switches for the slow extras
 
 - **Technique: what works for you** (`js/technique.js`, phase 1, no body tracking). For the user's own shots: contact height (waist to chest band), contact depth against the baseline, time after the incoming bounce, margin over the net, spin, recovery 1.2 s later; serves: first vs second (a second serve follows a missed one with no shot of his in between), toss top and spread, contact height within first serves. Groups of at least 8 shots, a share difference of 12 points or more and a two-proportion z of 1 ("trend") or 1.65 ("clear"). When his numbers go against the usual advice, the advice is withheld and the best and a missed example are offered. The engine now stores `feet` (where he stood at the shot), `rec` (1.2 s later) and `toss` (top of the toss on the plane of the hit) for his shots; all three are kept in the history.
