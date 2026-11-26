@@ -60,6 +60,16 @@ Security choices:
 
 [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3-Clause). Fonts: Marcellus and Jost (SIL Open Font License).
 
+## What changed on 2026-11-26: the opponent's shots
+
+Tested on synthetic videos with known truth, built on a real court seen from a phone 2.9 m up behind the baseline, and on Gabriel's 19-minute match:
+
+- **Tracks that run through a bounce on the camera's side.** From a low camera the ball keeps coming down the picture after it bounces near the camera, only at another pace, so the tracker joined both parts and no flight fitted: the shot was dropped. Such a track is now split where two arcs explain it far better than one, and the split is used as the bounce (cameras below 5 m only).
+- **Speed off the opponent's racket.** The opponent's ball is first seen near the net, about half a second after the hit. The flight is now run back to waist height 0.8 m behind the far baseline and the speed is reported there, as for the near player's shots (the speed where it was first seen is kept as `speedSeen`).
+- **A ball seen bouncing on the camera's side got over the net**, whatever the fitted clearance says.
+
+Synthetic videos: opponent shots found 12 → 32 of 41, speed error −22 % → +1 % (median). Match video: opponent shots 72 → 143 (median 59 → 79 km/h), the near player's 125 shots unchanged, balls reviewed at the line 17 → 31, and the first "out by a little" calls (5 cm, 42 cm). The broadcast regression clips are unchanged.
+
 ## What changed on 2026-11-23: speed accuracy
 
 Checked against an independent bounce-timing measurement on broadcast rallies (contact and bounce indexed by hand on the court lines, flight solved with gravity, drag and spin), the previous version was 27-34% off on all three forehands it found. Causes and fixes, in `js/engine.js`:
