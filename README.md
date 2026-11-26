@@ -60,6 +60,12 @@ Security choices:
 
 [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3-Clause). Fonts: Marcellus and Jost (SIL Open Font License).
 
+## What changed on 2026-11-26 (later): shots heard but not seen leaving the racket
+
+Near the camera the ball often leaves the racket blurred, behind the player or out of the picture; the tracker finds it 0.1-0.4 s later, high or deep, and with no hit and no sensible start the shot was thrown away. `js/sound.js` now reads the file's own sound (plain PCM from .MOV, AAC through `AudioDecoder`) while the pictures are read and finds racket clicks (sharp jumps above 1.5 kHz). In `analyze()` (option `clicks`), each click with no shot near it and a ball going away within 0.45 s gets a flight fitted with the hit pinned at the click: waist high where the player stands, or where the opponent's previous ball had got to by then, or 2.6 m over the baseline for a serve at the start of a point. The picture/sound clock offset is the median over hits seen in both. Such shots carry `heard: true`.
+
+Synthetic test (the first 0.2 s after every near hit removed; 30 false clicks a minute plus every bounce and far hit as clicks): near shots found 0 → 17 of 21, speed error median 4.4 % (90th percentile 7 %), depth 0.5 m, no false shots; with 0.35 s removed 10 of 21. Gabriel's match: near shots 125 → 137, opponent's 143 unchanged; the twelve rescued ones were checked frame by frame (serves, a forehand into the net at 11:48, balls struck from outside the picture). Corner-view lesson: 142 → 179, mostly strokes hit from beyond the right edge of the picture. Cost: about 3 s to read the sound of a 20-minute match and 10 % more fitting time.
+
 ## What changed on 2026-11-26: the opponent's shots
 
 Tested on synthetic videos with known truth, built on a real court seen from a phone 2.9 m up behind the baseline, and on Gabriel's 19-minute match:
