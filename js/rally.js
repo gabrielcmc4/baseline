@@ -3,7 +3,7 @@
 // fitted flight says when it came down and how fast; after the bounce the ball rises and falls again, and the time to the
 // second bounce follows from that (vertical speed kept by the bounce, gravity). A hit by the other player after that moment
 // means the ball bounced twice: the rally was already over, and that hit starts something new.
-// In a match a new rally starts with a serve; a ball that starts nothing (not a serve, and nobody plays it back after one
+// In a match a new rally starts with a serve (or with a hit whose serve was not seen); a ball that starts nothing (not a serve, and nobody plays it back after one
 // bounce) was hit between points: sending the ball back, or knocking it to the side.
 const G = 9.81, E_BOUNCE = 0.78, MARGIN = 0.2; // vertical speed kept by a hard court bounce; slack for the fitted bounce time and the hit time
 const hitTime = s => s.far ? (s.tHit != null ? s.tHit : s.t - 0.5) : s.t;
@@ -17,9 +17,10 @@ export function findRallies(shots, mode = 'match') {
   const groups = []; let cur = null;
   for (const h of hs) { const p = cur && cur[cur.length - 1];
     let keep = false;
-    if (p && !h.s.serve) {
-      if (p.who !== h.who) keep = h.t - p.t > 0.3 && (p.s.result === 'in' || p.s.result === undefined) && (!p.b || h.t <= p.b.t2 + MARGIN); // the other player hit it back before a second bounce
-      else keep = h.t - p.t < 3.6 && p.b && h.t > p.b.t1; // the same player twice: the other's hit in between was missed (not seen), if it came in time
+    if (p) {
+      // the other player hit it back before a second bounce. The call does not matter (players do play balls that were out, and a call can be wrong), and neither does a "serve" label: nobody serves within a second of the ball coming over
+      if (p.who !== h.who) keep = h.t - p.t > 0.3 && (!p.b || h.t <= p.b.t2 + MARGIN);
+      else keep = !h.s.serve && h.t - p.t < 3.6 && p.b && h.t > p.b.t1; // the same player twice: the other's hit in between was missed (not seen), if it came in time
     }
     if (keep) cur.push(h); else { cur = [h]; groups.push(cur); } }
   const out = []; for (const g of groups) { const first = g[0].s, solo = g.length === 1;
