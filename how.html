@@ -93,6 +93,23 @@
   <p>Todas as velocidades com ✓ ficaram a até 3% e os pontos de quique a até 25 cm. Para ver se isso se sustenta com imagens piores, o teste foi repetido 15 vezes apagando de propósito 15% dos pontos da bola e tremendo os outros: a versão nova achou 72 de 90 golpes (a antiga, 37), todas as velocidades com ✓ ficaram a até 5%, e os golpes falsos caíram de 0,4 para 0,04 por vídeo. Sem o quique visto, o erro típico fica entre 7 e 11% e chegou a um terço num caso; por isso esses golpes aparecem com ±10% ou mais.</p>
   <p class="aside">O teste usou transmissões de TV (câmera a 13 m de altura), não a câmera de celular atrás da linha de fundo para a qual o Baseline foi feito, e a referência é o tempo até o quique, não um radar. Daquela altura de celular o quique do outro lado muitas vezes fica atrás da rede; bolas fundas e as que caem do seu lado são as que ganham ✓.</p>
 
+  <h2>Testes com resposta conhecida (26 e 27/11/2026)</h2>
+  <p>Para saber o erro de verdade, foram feitos vídeos sintéticos sobre a quadra real do Gabriel, com bolas de trajetória conhecida (gravidade, arrasto, efeito), desfoque de movimento, sombra, câmera balançando e compressão H.264, e cada número do Baseline foi comparado com a resposta:</p>
+  <div class="tablewrap"><table class="oss num">
+    <thead><tr><th>O que</th><th>Resultado</th></tr></thead>
+    <tbody>
+      <tr><td>Seus golpes encontrados</td><td>41 de 42</td></tr>
+      <tr><td>Velocidade dos seus golpes</td><td>erro mediano 5 a 7% (90% dos golpes até 10 a 14%)</td></tr>
+      <tr><td>Profundidade dos seus golpes (quique do outro lado)</td><td>erro mediano 1,0 a 1,4 m; tende a "longo" quando o quique não aparece, por isso a margem fica ao lado</td></tr>
+      <tr><td>Golpes do adversário encontrados</td><td>32 de 41</td></tr>
+      <tr><td>Velocidade do adversário</td><td>erro mediano 3%</td></tr>
+      <tr><td>Revisão de bolas na linha (do seu lado)</td><td>19 de 19 chamadas certas; distância à linha com erro mediano de 2,9 cm (pior 9 cm)</td></tr>
+      <tr><td>Golpes achados pelo som, com o começo do voo apagado de propósito</td><td>0 → 17 de 21, velocidade com erro mediano de 4%, nenhum golpe falso com 30 estalos falsos por minuto</td></tr>
+    </tbody>
+  </table></div>
+  <p>E os vídeos reais do Gabriel, rodados inteiros no navegador, com tudo ligado: um jogo de 19 min, uma aula de 51 min com ele do outro lado, um treino de 62 min filmado do canto, um treino de saque de 13 min e uma aula curta. Os golpes duvidosos foram conferidos quadro a quadro. Isso achou e corrigiu: "saques" que eram forehands pegos tarde (14 no jogo), dois "saques" que eram o jogador andando, efeito impossível (33.000 rpm), a análise do corpo trocando forehand por backhand na câmera de lado, e um vídeo que ficava parado ao abrir.</p>
+  <p class="aside">Ainda em aberto: saques cuja hora vem do estalo da raquete, sem quique visto, saem em média 19% mais rápidos que os saques do mesmo treino com quique visto, e ainda não se sabe qual dos dois está mais perto da verdade. Até lá, nenhum deles aparece mais rápido que o mais rápido com quique visto.</p>
+
   <h2>O que não acreditar</h2>
   <ul class="tuned">
     <li>Nada aqui foi conferido com radar. As velocidades com ✓ bateram com o tempo até o quique; as outras são estimativas com a margem mostrada ao lado.</li>
@@ -176,6 +193,23 @@
   <p class="aside">km/h. Vienna: broadcast at 50 pictures a second, and the same rally at 30; Shanghai: 25, Nadal's slice serve. The "Bounce" column is the independent measurement; its own margin is 4 to 8%.</p>
   <p>Every speed with a ✓ came within 3%, and the bounce spots within 25 cm. To see whether that holds with worse pictures, the test was repeated 15 times with 15% of the ball spots deleted on purpose and the rest jittered: the new version found 72 of 90 shots (the old one, 37), every speed with a ✓ stayed within 5%, and false shots fell from 0.4 to 0.04 per video. Without the bounce seen, the typical error is 7 to 11% and reached a third in one case; those shots therefore show ±10% or more.</p>
   <p class="aside">The test used TV broadcasts (camera 13 m up), not the phone camera behind the baseline that Baseline is made for, and the reference is bounce timing, not a radar. From that phone height the far bounce is often behind the net; deep balls and balls landing on your own side are the ones that get a ✓.</p>
+
+  <h2>Tests with a known answer (26 and 27/11/2026)</h2>
+  <p>To know the real error, synthetic videos were made on Gabriel's actual court, with balls of known flight (gravity, drag, spin), motion blur, a shadow, a swaying camera and H.264 compression, and every number from Baseline was compared with the answer:</p>
+  <div class="tablewrap"><table class="oss num">
+    <thead><tr><th>What</th><th>Result</th></tr></thead>
+    <tbody>
+      <tr><td>Your shots found</td><td>41 of 42</td></tr>
+      <tr><td>Speed of your shots</td><td>median error 5 to 7% (90% of shots within 10 to 14%)</td></tr>
+      <tr><td>Depth of your shots (bounce on the far side)</td><td>median error 1.0 to 1.4 m; leans "long" when the bounce is not seen, hence the margin shown next to it</td></tr>
+      <tr><td>Opponent's shots found</td><td>32 of 41</td></tr>
+      <tr><td>Opponent's speed</td><td>median error 3%</td></tr>
+      <tr><td>Line review (your side)</td><td>19 of 19 calls right; distance to the line with a median error of 2.9 cm (worst 9 cm)</td></tr>
+      <tr><td>Shots found by sound, with the start of the flight erased on purpose</td><td>0 → 17 of 21, speed with a median error of 4%, no false shot with 30 false clicks a minute</td></tr>
+    </tbody>
+  </table></div>
+  <p>And Gabriel's real videos, run whole in the browser with everything on: a 19-minute match, a 51-minute lesson with him on the far side, a 62-minute practice filmed from the corner, a 13-minute serve practice and a short lesson. Doubtful shots were checked frame by frame. That found and fixed: "serves" that were forehands caught late (14 in the match), two "serves" that were the player walking, impossible spin (33,000 rpm), the body analysis mixing up forehand and backhand with a side camera, and a video that stayed stuck while opening.</p>
+  <p class="aside">Still open: serves whose time comes from the racket's click, with no bounce seen, come out on average 19% faster than the serves of the same practice whose bounce was seen, and it is not yet known which is closer to the truth. Until then, none of them is shown faster than the fastest one with a seen bounce.</p>
 
   <h2>What not to believe</h2>
   <ul class="tuned">
