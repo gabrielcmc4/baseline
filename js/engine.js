@@ -388,12 +388,16 @@ export function analyze(frames0, cam, opts = {}) { frames0 = retime(frames0); if
     const all = []; let meta = null, done = 0; for (const [sg, fr] of groups) { done += fr.length; if (fr.length < 20 || !opts.cams[sg]) continue; const r = analyzeOne(fr, new Camera(opts.cams[sg], cam.W, cam.H), { ...opts, cams: null, onProgress: null }); for (const q of r) { q.seg = sg; all.push(q); } if (!meta || r.length > meta.n) meta = { ...r.meta, n: r.length }; if (opts.onProgress) opts.onProgress(done / frames0.length); }
     all.sort((a, b) => a.t - b.t); all.meta = { ...(meta || { rej: {} }), views: groups.size }; return all; }
   return analyzeOne(frames0, cam, opts); }
-function analyzeOne(frames0, cam, opts = {}) { const qz = quiet(frames0), frames = qz.frames, out = analyze2(frames, cam, opts); out.meta.noisy = [qz.cells, qz.removed];
+function analyzeOne(frames0, cam, opts = {}) { const qz = quiet(frames0), frames = qz.frames, out = analyze2(frames, cam, opts); if (opts.passOnly) return out; out.meta.noisy = [qz.cells, qz.removed];
   for (const q of out) { const tq = q.t + (q.tLand || 0); let lo = 0, hi = frames.length - 1; while (lo < hi) { const mid = (lo + hi) >> 1; if (frames[mid].t < tq) lo = mid + 1; else hi = mid; } const f = frames[lo]; if (f && f.sh) q.sh = [f.sh[0], f.sh[1]]; } /* where the picture was, against the calibration picture, when the ball came down: for anything that goes back to the video itself */
   return out; }
-function analyze2(frames, cam, opts = {}) { const p = opts.onProgress, a = analyzeCore(frames, cam, { ...opts, onProgress: p && (v => p(v / 2)) });
-  if (opts.only || !frames.some(f => f.c2 && f.c2.length > f.c.length)) { a.meta.colour = 'strict'; return a; }
-  const b = analyzeCore(frames.map(f => ({ ...f, c: f.c2 || f.c })), cam, { ...opts, onProgress: p && (v => p(0.5 + v / 2)) });
+// The two colour passes are independent: the worker can run pass b in a second worker at the same time (opts.passOnly 'a' / 'b' each return one pass; opts.passA / passB hand finished passes back for the merge). Coach lesson, 51 min: fit 440 s one after the other.
+export function wantsTwoPasses(frames) { return frames.some(f => f.c2 && f.c2.length > f.c.length); }
+function analyze2(frames, cam, opts = {}) { const p = opts.onProgress, two = !opts.only && wantsTwoPasses(frames);
+  if (opts.passOnly === 'b') return two ? analyzeCore(frames.map(f => ({ ...f, c: f.c2 || f.c })), cam, { ...opts, onProgress: null }) : null;
+  const a = opts.passA || analyzeCore(frames, cam, { ...opts, onProgress: p && (opts.passOnly === 'a' ? p : v => p(v / 2)) }); if (opts.passOnly === 'a') return a;
+  if (!two) { a.meta.colour = 'strict'; return a; }
+  const b = opts.passB || analyzeCore(frames.map(f => ({ ...f, c: f.c2 || f.c })), cam, { ...opts, onProgress: p && (v => p(0.5 + v / 2)) });
   // near player's shots: whichever colour test gives clearly more; far-side shots (small, far ball): likewise, chosen separately
   const near = q => !q.far, far = q => q.far, na = a.filter(near).length, nb = b.filter(near).length, fa = a.length - na, fb = b.length - nb;
   const useB = nb > na * 1.15 + 1, farB = fb > fa, out = (useB ? b : a).filter(near).concat((farB ? b : a).filter(far));
