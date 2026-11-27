@@ -60,6 +60,13 @@ Security choices:
 
 [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3-Clause). Fonts: Marcellus and Jost (SIL Open Font License).
 
+## What changed on 2026-11-27: every video run again, checked by eye
+- **Serves timed by the click read 17 % fast.** In the frames the ball was in view from the hit, but the serve's first 0.1-0.15 s runs across the picture (camera behind) and was a separate track. Tracks are now joined back to the hit (same direction, meeting point; tried again without the join if the longer track fails a test). Serve practice: the click-anchored and the bounce readings of the same serves now differ by 7 % (median), 0-10 % when the click is within 0.06 s of the track's start. A click more than 0.08 s before the track no longer times a serve.
+- **Sound clock.** Phones that record in pieces pad the sound with 2-8 ms pauses (20-50 ms over a video). Clicks are now placed through the sound's and the picture's edit lists.
+- **Speed cap after the two colour passes** are merged (the seen-bounce serves can come from the other pass).
+- **Side camera:** serves without a seen bounce are not shown (they landed 3-8 m off; the one checked against the video was wrong), except "net, on the limit". Far-end "long" calls in the middle of the court were checked frame by frame and are right; near the far corner one pixel is about 30 cm.
+- **Body:** deepest knee bend, widest turn and highest finish taken after a 3-picture running median.
+
 ## What changed on 2026-11-26 (late night): body movement (phase 2 of the technique notes)
 
 - `js/body.js` + `vendor/pose` (MediaPipe Pose 0.5 JavaScript solution, Apache-2.0, lite model, SIMD build, 12 MB, loaded only when used). Third switch in step 1, off by default, also available later from the report. For each of the player's own shots the full-size picture is cut around him (from `feet`, the court position the engine records) and shown to the pose model 15 times a second from 0.8 s before (serve 1.1 s) to 0.5 s after the hit. Stored per shot as `body` (and in the history): shoulder turn at the incoming bounce (`turnB`, degrees, 0 = square, 90 = side-on), max turn before the hit, turn at contact, deepest knee angle, finish (racket hand above the shoulders, in body lengths), serve hand height and elbow angle at contact, and `side` (hands across the body at contact).
