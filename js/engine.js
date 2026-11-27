@@ -617,6 +617,8 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
     { const g = geoSd(lx, ly); sd[0] = Math.hypot(sd[0], g[0]); sd[1] = Math.hypot(sd[1], g[1]); }
     // A serve whose bounce was not seen and whose fitted flight passes the tape by less than the fit can vouch for: seen from the side the track always ends as the ball's picture reaches the net, so "just over" and "into the tape" look the same up to there. Gabriel's check of a corner-view lesson: both such serves (0.27 and 0.33 m over by the fit) had gone into the net. Called net, and marked as on the limit.
     const netDoubt = blind && Math.abs(cam.C[0]) > COURT.D + 1 && sum.net && sum.clear >= 0 && sum.clear < Math.max(0.4, 1.2 * sd[2]); if (netDoubt) meta.netDoubt = (meta.netDoubt || 0) + 1;
+    // From the side, a serve whose bounce was not seen cannot be placed: on the corner-view lesson such serves came out 2-4 m long or 3-4 m outside the doubles line at 100-130 km/h, and the one Gabriel checked (60:06, into the net) read 'wide'. Only the 'net, on the limit' call above is kept for them (both he checked were right); the rest are not shown.
+    if (blind && !netDoubt && Math.abs(cam.C[0]) > COURT.D + 1) { if (again()) continue; meta.rej.sideBlind = (meta.rej.sideBlind || 0) + 1; continue; }
     if (!sum.net || sum.clear < 0 || netDoubt) result = 'net'; else { const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
     let close = netDoubt; if (result !== 'net') { const xs = left ? [-C.S, 0] : [0, C.S]; close = Math.abs(ly - (C.LEN - C.SV)) < sd[1] || xs.some(b => Math.abs(lx - b) < sd[0]); }
     const rpm = spinFromCl(x[6], v0), rpmHi = spinFromCl(x[6] + sd[3], v0), rpmLo = spinFromCl(x[6] - sd[3], v0); for (const i of idx) usedS.add(i);
@@ -704,6 +706,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       const sd = covariance(best.fit, y => { const q = flightSummary(y); return [q.land ? q.land[0] : 0, q.land ? q.land[1] : 0, q.net ? q.net[2] : 0, y[6], 3.6 * Math.hypot(y[3], y[4], y[5])]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9, 99];
       if (sd[1] > 2.5 || sd[4] > 0.15 * speed) { (sm.why = sm.why || {}).depth = (sm.why.depth || 0) + 1; if (sm.log.length < 300) sm.log.push([+tc.toFixed(2), 'depth', +sd[1].toFixed(1), Math.round(sd[4])]); continue; }
       const C = COURT, [lx, ly] = sum.land, serve = best.serve && x[2] > 2.2; let result, target = null;
+      if (serve && Math.abs(cam.C[0]) > C.D + 1) { (sm.why = sm.why || {}).sideServe = (sm.why.sideServe || 0) + 1; continue; } // a serve placed only by its click, seen from the side: no bounce to place it (see the serve pass); corner-view lesson: 7 such, 2-4 m long or wide, the one checked wrong
       if (sum.clear < 0) result = 'net'; else if (serve) { const left = x[0] > 0; target = left ? 'left' : 'right'; const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly <= C.LEN - C.SV) ? 'in' : (ly > C.LEN - C.SV ? 'long' : 'wide'); }
       else result = (Math.abs(lx) <= C.S && ly <= C.LEN) ? 'in' : (ly > C.LEN ? 'long' : 'wide');
       { const g = geoSd(lx, ly); sd[0] = Math.hypot(sd[0], g[0]); sd[1] = Math.hypot(sd[1], g[1]); }
