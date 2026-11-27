@@ -108,8 +108,8 @@ export async function parseMp4(file) {
         if (mt >= 0 && dur > 0) edits.push([mt, mt + dur * timescale / mts, at / mts]); at += dur; } }
     const plain = edits.length < 2 || edits.some((e, k) => k && e[0] < edits[k - 1][1] - 1); // one stretch (or none): the usual case, time simply counts from the first picture; stretches that go back in the stored pictures are not handled
     if (plain) for (let i = 0; i < n; i++) pres[i] = (cts[i] - cmin) / timescale;
-    const zero = plain ? (edits.length ? edits[0][2] + (cmin - edits[0][0]) / timescale : cmin / timescale) : edits[0][2]; // the movie's time (the clock both tracks share) of the picture clock's 0
     else { const t0 = edits[0][2]; for (let i = 0; i < n; i++) { let lo = 0, hi = edits.length - 1; while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (edits[mid][0] <= cts[i] + 0.5) lo = mid; else hi = mid - 1; } const e = edits[lo]; if (cts[i] + 0.5 >= e[0] && cts[i] + 0.5 < e[1]) pres[i] = e[2] - t0 + (cts[i] - e[0]) / timescale; else { pres[i] = -1; hidden++; } } }
+    const zero = plain ? (edits.length ? edits[0][2] + (cmin - edits[0][0]) / timescale : cmin / timescale) : edits[0][2]; // the movie's time (the clock both tracks share) of the picture clock's 0
     const raw = (x0, x1) => new Uint8Array(v.buffer.slice(v.byteOffset + x0, v.byteOffset + x1)), mo2 = tkhd ? tkhd.a + (v.getUint8(tkhd.a) === 1 ? 52 : 40) : -1;
     return { zero, audio, codec, description, width, height, ang, timescale, n, size, offset, dts, cts, sync, cmin, pres, hidden, edits: plain ? null : edits, duration: tt / timescale, summary, total: tt, stsdRaw: raw(stsd.a - 8, stsd.b), matrix: tkhd ? raw(mo2, mo2 + 36) : null, tkwh: tkhd ? raw(mo2 + 36, mo2 + 44) : null }; }
   throw new Error('no usable video track (' + summary.join(',') + ')');
