@@ -652,6 +652,8 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       const sum = flightSummary(x); if (!sum.land) continue;
       const sd = covariance(fit, y => { const w = flightSummary(y); return [w.land ? w.land[0] : 0, w.land ? w.land[1] : 0, w.net ? w.net[2] : 0, y[6]]; }, [1e-3, 1e-3, 1e-3, 1e-2, 1e-2, 1e-2, 1e-3]) || [9, 9, 9, 9]; if (sd[1] > (ground ? 3 : 1.5)) continue; // without a visible bounce the depth of an incoming ball is only trusted when the fit is tight
       const C = COURT, [lx, ly] = sum.land, serve = x[2] > 2.0 && x[1] > C.LEN - 2; let result, target = null;
+      // Serve practice: a ball coming toward the camera counts as a serve only if it was first seen beyond the net, its flight run back reaches the far baseline at a serving height inside the doubles lines, and a toss was seen before it. Gabriel's serve practice: 13 such 'serves' at 63-178 km/h with nobody on the far court (balls from elsewhere, or rolling back); 12 go, one is left.
+      if (mode === 'serve' && !(Bh && Bh[0][2] >= 2.0 && Bh[0][2] <= 3.5 && Math.abs(Bh[0][0]) <= C.D + 0.5 && x[1] > C.NET && hasToss(t0, uv[0][0], uv[0][1], null))) { meta.rej.farNotServe = (meta.rej.farNotServe || 0) + 1; continue; }
       const past = x[1] < C.NET + 0.3 || (ground && ground[1] < C.NET - 0.3); // first seen when it was already at the net, or seen bouncing on the camera's side: it did get over
       if (!past && (!sum.net || sum.clear < 0)) result = 'net';
       else if (mode === 'serve' || serve) { const left = x[0] > 0; target = left ? 'left' : 'right'; const inX = left ? (lx >= -C.S && lx <= 0) : (lx >= 0 && lx <= C.S); result = (inX && ly >= C.SV) ? 'in' : (ly < C.SV ? 'long' : 'wide'); }
