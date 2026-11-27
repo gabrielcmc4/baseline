@@ -60,6 +60,14 @@ Security choices:
 
 [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3-Clause). Fonts: Marcellus and Jost (SIL Open Font License).
 
+## What changed on 2026-11-27 (day): two new videos, speed and false serves
+Two new videos (a 54-min lesson filmed from behind, a 104-min match filmed from a corner with the next court in view).
+- **Fit twice as fast**: the two colour passes run in two workers at once (identical results on every stored test video; lesson: 499 s -> 297 s).
+- **Extras together**: forehand/backhand, line calls and body run at the same time after the fit.
+- **Where the time goes now** (12-thread PC, 1080p HEVC): reading the video ~3x real time (per picture ~7.5 ms to read the pixels back from the graphics card, ~8 ms ball search; 4 readers give 160 pictures/s, 8 only 174). The dead-time skip saves 2-5 % on these videos (people and balls keep moving between points), so it was left as it is.
+- **False serves removed**: a serve whose toss is 1-2.5 m to the side of the player, or that comes less than 1.5 s after his own groundstroke, is that ball seen again (lesson: six "serves" of 58-215 km/h; match of 26/11: two).
+- **Other courts**: a ball first seen more than 3.5 m outside the doubles line (or 2 m outside and landing 3 m outside) is someone else's (corner match: about 90 such "opponent" shots).
+
 ## What changed on 2026-11-27: every video run again, checked by eye
 - **Serves timed by the click read 17 % fast.** In the frames the ball was in view from the hit, but the serve's first 0.1-0.15 s runs across the picture (camera behind) and was a separate track. Tracks are now joined back to the hit (same direction, meeting point; tried again without the join if the longer track fails a test). Serve practice: the click-anchored and the bounce readings of the same serves now differ by 7 % (median), 0-10 % when the click is within 0.06 s of the track's start. A click more than 0.08 s before the track no longer times a serve.
 - **Sound clock.** Phones that record in pieces pad the sound with 2-8 ms pauses (20-50 ms over a video). Clicks are now placed through the sound's and the picture's edit lists.
