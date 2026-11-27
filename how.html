@@ -50,6 +50,8 @@
     <li><h3>Técnica: o que funciona para você</h3>
       <p>Com os voos medidos, o programa compara os seus golpes entre si: a altura em que você encontrou a bola (o padrão dos treinadores é entre a cintura e o peito), onde em relação à linha de fundo, quanto tempo depois do quique, a folga sobre a rede, o efeito, onde você estava 1,2 s depois; no saque, primeiro contra segundo, o lançamento e a altura do contato. Um achado só aparece com pelo menos 8 golpes em cada grupo e uma diferença que não seja acaso. Quando os seus números vão contra o conselho habitual, o conselho não é dado: aparecem os dois exemplos para você ver no vídeo. São regras fixas e contagem, tudo no aparelho, sem enviar nada.</p>
       <p>Com a opção "Analisar o movimento do corpo", um modelo de pose (MediaPipe Pose, versão leve, que roda no próprio navegador) olha a imagem em tamanho cheio recortada em volta de você, umas 15 vezes por segundo, do pouco antes ao pouco depois de cada golpe: quanto os ombros já tinham girado quando a bola quicou, o quanto os joelhos dobraram, se a mão da raquete terminou acima dos ombros. Recortar em volta do jogador é o que faz funcionar: no quadro inteiro o modelo acha o corpo em 1 de cada 5 imagens, recortado em todas.</p></li>
+    <li><h3>Pontos, ralis e voleios</h3>
+      <p>Os golpes viram ralis pela regra de um quique: o voo medido diz quando a bola caiu e quando cairia de novo; se o outro jogador bate depois disso, o rali já tinha acabado. Quem ganhou o ponto sai só da última bola medida (bola sua dentro que não voltou, ou erro dele; erro seu). Um rali que termina com bola dele dentro fica à parte: pode ser ponto dele, ou a sua resposta que a câmera não mediu. Um golpe batido antes de a bola quicar é voleio; acima de 2,2 m, smash. Da quina da quadra, o voleio na rede costuma aparecer ao contrário (uma bola "vindo" do lugar onde você está): esses viram jogadas suas na rede, sem velocidade, com botão para rever.</p></li>
   </ol>
 
   <h2>O que é de código aberto aqui</h2>
@@ -116,6 +118,7 @@
     <li>Nada aqui foi conferido com radar. As velocidades com ✓ bateram com o tempo até o quique; as outras são estimativas com a margem mostrada ao lado.</li>
     <li>O efeito é a medida mais frágil: compare medianas, não um golpe isolado.</li>
     <li>Parte dos golpes não é encontrada, e bolas devolvidas entre os pontos às vezes contam como golpe.</li>
+    <li>A contagem de pontos ganhos e perdidos é só o que a última bola medida permite dizer; voleios na rede são achados em parte (no jogo de 27/11, dois foram confirmados nos quadros).</li>
   </ul>
   <p>O código é aberto: <a href="https://github.com/gabrielcmc4/baseline">github.com/gabrielcmc4/baseline</a>.</p>
 </article>
@@ -152,6 +155,8 @@
     <li><h3>Technique: what works for you</h3>
       <p>With the flights measured, the program compares your shots with each other: how high you met the ball (coaches' standard is waist to chest), where against the baseline, how long after the bounce, the margin over the net, the spin, where you were 1.2 s later; on serve, first against second, the toss and the contact height. A finding is shown only with at least 8 shots in each group and a difference that is not chance. When your numbers go against the usual advice, the advice is not given: the two examples are offered for you to see on the video. Fixed rules and counting, all on your device, nothing sent anywhere.</p>
       <p>With "Analyse body movement" on, a pose model (MediaPipe Pose, lite, running in the browser) looks at the full-size picture cut around you, about 15 times a second, from just before to just after each shot: how far the shoulders had turned when the ball bounced, how much the knees bent, whether the racket hand finished above the shoulders. Cutting around the player is what makes it work: on the whole picture the model finds the body in 1 picture in 5, cut around him in all of them.</p></li>
+    <li><h3>Points, rallies and volleys</h3>
+      <p>Shots become rallies by the one-bounce rule: the measured flight says when the ball came down and when it would come down again; if the other player hits after that, the rally was already over. Who won the point comes only from the last ball measured (your ball in and not returned, or his error; your error). A rally ending with his ball in is kept apart: his point, or your reply that the camera did not measure. A shot struck before the ball bounced is a volley; above 2.2 m an overhead. From the corner of the court a volley at the net often shows up backwards (a ball "coming" from where you stand): those become your plays at the net, without a speed, with a button to replay them.</p></li>
   </ol>
 
   <h2>What is open source here</h2>
@@ -218,6 +223,7 @@
     <li>Nothing here has been checked against a radar. Speeds with a ✓ matched bounce timing; the others are estimates with the margin shown next to them.</li>
     <li>Spin is the most fragile measurement: compare medians, not a single shot.</li>
     <li>Some shots are not found, and balls sent back between points sometimes count as shots.</li>
+    <li>The count of points won and lost is only what the last measured ball can say; volleys at the net are found in part (in the 27/11 match two were confirmed on the frames).</li>
   </ul>
   <p>The code is open: <a href="https://github.com/gabrielcmc4/baseline">github.com/gabrielcmc4/baseline</a>.</p>
 </article>

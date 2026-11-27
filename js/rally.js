@@ -12,14 +12,16 @@ const side = s => s.far ? 'far' : 'near'; // who hit it: the player at the far e
 export function bounces(s) { if (!s.tLand || !s.path || s.path.length < 3) return null; const n = s.path.length, a = s.path[n - 3], b = s.path[n - 2], vz = (b[2] - a[2]) * 60; // flight path points are 1/60 s apart, the last one is the landing itself
   const t1 = s.t + s.tLand, up = E_BOUNCE * Math.max(1, -vz); return { t1, t2: t1 + 2 * up / G }; }
 // shots: as analyze() returns them. mode: 'match' (rallies start with a serve), otherwise rallies may start with any hit (lessons, drills).
-export function findRallies(shots, mode = 'match') {
-  const hs = shots.filter(s => s.result !== undefined).map(s => ({ s, t: hitTime(s), who: side(s), b: bounces(s) })).sort((p, q) => p.t - q.t);
+// plays: the near player's hits at the net that were seen but not measured (engine meta.netPlays: { t, smash }); they take part in the rallies like any shot, without a flight.
+export function findRallies(shots, mode = 'match', plays = []) {
+  const hs = shots.filter(s => s.result !== undefined).map(s => ({ s, t: hitTime(s), who: side(s), b: bounces(s) }))
+    .concat((plays || []).map(p => ({ s: { t: p.t, far: false, netPlay: true, smash: !!p.smash, result: 'play', speed: 0 }, t: p.t, who: 'near', b: null }))).sort((p, q) => p.t - q.t);
   const groups = []; let cur = null;
   for (const h of hs) { const p = cur && cur[cur.length - 1];
     let keep = false;
     if (p) {
       // the other player hit it back before a second bounce. The call does not matter (players do play balls that were out, and a call can be wrong), and neither does a "serve" label: nobody serves within a second of the ball coming over
-      if (p.who !== h.who) keep = h.t - p.t > 0.3 && (!p.b || h.t <= p.b.t2 + MARGIN);
+      if (p.who !== h.who) keep = h.t - p.t > 0.3 && (p.b ? h.t <= p.b.t2 + MARGIN : !p.s.netPlay || h.t - p.t < 3); // after a play at the net (no flight known) the answer comes within 3 s
       else if (!h.s.serve && p.b) keep = p.s.returned === true ? h.t <= p.b.t2 + 2.6 // the same player twice: the other one did send the ball back (seen going up the picture) but his shot could not be measured
         : p.s.returned === false ? false // the ball was not sent back: whatever comes next is new
         : h.t - p.t < 3.6 && h.t > p.b.t1; // not known (the near player's shots): the other's hit in between was missed, if it came in time
@@ -32,5 +34,5 @@ export function findRallies(shots, mode = 'match') {
     let missed = 0; for (let i = 1; i < g.length; i++) if (g[i].who === g[i - 1].who) missed++; if (g[g.length - 1].s.returned) missed++; // played back, but that last shot was not measured
     const last = g[g.length - 1];
     out.push({ n: out.length, start: g[0].t, end: (last.b ? last.b.t1 : last.t + 1), shots: g.length + missed, seen: g.length, missed, serve: !!first.serve,
-      endedBy: last.s.result === 'in' ? 'in' : last.s.result, lastBy: last.who, fastest: Math.max(...g.map(h => h.s.speed || 0)), mean: g.reduce((a, h) => a + (h.s.speed || 0), 0) / g.length, idx: g.map(h => shots.indexOf(h.s)) }); }
+      endedBy: last.s.netPlay ? 'netPlay' : last.s.result === 'in' ? 'in' : last.s.result, lastBy: last.who, plays: g.filter(h => h.s.netPlay).map(h => h.s), fastest: Math.max(...g.map(h => h.s.speed || 0)), mean: (m => m.length ? m.reduce((a, h) => a + h.s.speed, 0) / m.length : 0)(g.filter(h => !h.s.netPlay)), idx: g.filter(h => !h.s.netPlay).map(h => shots.indexOf(h.s)) }); }
   return out; }

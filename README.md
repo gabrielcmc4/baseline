@@ -60,6 +60,13 @@ Security choices:
 
 [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3-Clause). Fonts: Marcellus and Jost (SIL Open Font License).
 
+## What changed on 2026-11-27 (evening): points, rallies and volleys
+- **New report panel "Pontos, ralis e voleios"** (match and lesson, sessions measured in this browser). Shots are grouped into rallies by the one-bounce rule (`js/rally.js`, written earlier but never shown): number of rallies, longest, length bins, the five longest with a button to watch them.
+- **Who won the point, honestly.** Only what the last measured ball says: your ball in and not returned, or his error = yours; your error = his. A rally that ends with *his* ball in is shown apart ("his point, or your reply was not measured"): from the corner the camera misses more of the near player's shots, and on the Leo match counting those as lost points gave 157 lost to 69 won.
+- **Volleys.** A shot hit before the incoming ball bounced (or struck 6 m or more inside the court) is a volley; above 2.2 m an overhead. Tagged in the shot list and saved with the session.
+- **Net volleys read backwards.** From the corner, a ball the near player punches away at the net fits a ball coming towards the camera just as well, so it showed up as an opponent's shot starting at the near player's own spot (45:13 a stretched volley, 34:36 an overhead, both checked on the frames). Such a "far" shot is now taken out and kept as the near player's play at the net (no speed: the fitted flight ran the wrong way), counted in the rallies and listed with a replay button. Checks: the player must be standing within 2.5 m of where the ball started, inside the doubles lines, with the size of a person there (a moving shape by the gate next to the net post had been taken for him).
+- **Net or over:** the look beyond the net for a ball lost there now includes the last point of the fitted path (lesson 27/11: a ball seen 0.27 s past the net at 48:10 had been turned into "net"; the 20:20 net ball stays net).
+
 ## What changed on 2026-11-27 (day): two new videos, speed and false serves
 Two new videos (a 54-min lesson filmed from behind, a 104-min match filmed from a corner with the next court in view).
 - **Fit twice as fast**: the two colour passes run in two workers at once (identical results on every stored test video; lesson: 499 s -> 297 s).
