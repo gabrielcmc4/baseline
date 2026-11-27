@@ -46,4 +46,7 @@ async function aacLevels(a, file, signal) { if (typeof AudioDecoder === 'undefin
 // Returns [{t (seconds on the picture clock), s (how sharp, dB), db (level)}], or null when the file has no sound that can be read here.
 export async function findClicks(file, { signal } = {}) { const mp = await parseMp4(file), a = mp.audio; if (!a) return null;
   const L = a.pcm ? (a.bits === 8 || a.bits === 16 || a.bits === 24 || a.bits === 32 || a.flt ? await pcmLevels(a, file, signal) : null) : await aacLevels(a, file, signal); if (!L || L.db.length < 400) return null;
-  return clicksFromLevels(L.db, L.t0 - (a.skip || 0) / a.timescale); }
+  const cl = clicksFromLevels(L.db, a.edits ? L.t0 : L.t0 - (a.skip || 0) / a.timescale); if (!a.edits) return cl;
+  return toPicture(cl, a.edits, mp.zero || 0); }
+// Sound media time to the picture clock: through the sound's edit list to the movie's time, then to the pictures' 0. A click in no stretch that is played (cut away by the file's own edits) is dropped.
+export function toPicture(clicks, edits, zero) { const ed = edits.filter(e => e[2] >= 0), out = []; for (const c of clicks) { const e = ed.find(x => c.t >= x[2] - 1e-6 && c.t < x[2] + x[1] + 1e-6); if (!e) continue; out.push({ ...c, t: +(e[0] + c.t - e[2] - zero).toFixed(3) }); } return out; }
