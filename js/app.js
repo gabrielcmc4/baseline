@@ -224,7 +224,7 @@ $('trimGo').onclick = async () => { const msg = $('trimMsg'), dl = $('trimDl'), 
   catch (e) { console.error(e); crumb('trim failed ' + e.message); msg.textContent = t('trimFail'); msg.classList.add('bad'); }
   $('trimGo').disabled = false; };
 // technique notes (phase 1, from the flights only; see technique.js): the user's own shots, with the opponent's for the timing after the bounce
-function renderTech() { const panel = $('techPanel'), box = $('tech'); if (S.demo || (two() && (S.view || 'me') !== 'me')) { panel.hidden = true; return; } const R = techniqueNotes(S.shots, q => strokeName(q, S.left)); panel.hidden = !R.length; box.innerHTML = ''; if (!R.length) return; $('techTitle').textContent = tx('title'); $('techIntro').textContent = tx('intro');
+function renderTech() { const panel = $('techPanel'), box = $('tech'); if (S.demo || (two() && (S.view || 'me') !== 'me')) { panel.hidden = true; return; } const R = techniqueNotes(S.shots, q => strokeName(q, S.left), { mode: S.mode }); panel.hidden = !R.length; box.innerHTML = ''; if (!R.length) return; $('techTitle').textContent = tx('title'); $('techIntro').textContent = tx('intro');
   const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   const show = q => { if (!vis().includes(q)) { S.filt = newFilt(); renderReport(true); } const i = vis().indexOf(q); if (i >= 0) { select(i, true); $('sel').scrollIntoView({ behavior: 'smooth', block: 'center' }); } };
   const quiet = R.filter(g => !g.notes.length); if (quiet.length === R.length) { box.appendChild(el('p', 'help', tx('none'))); return; }
