@@ -1,0 +1,26 @@
+diff --git a/js/engine.js b/js/engine.js
+index 673948b..daf09d2 100644
+--- a/js/engine.js
++++ b/js/engine.js
+@@ -422,8 +422,11 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
+     if (q.length >= 5 && smoothRms(q) < 2.5 * s) segs.push(q); }
+   segs.sort((a, b) => a[0][0] - b[0][0]);
+   const used = new Set(), cands = [];
++  // A player at the net: the ball he volleys starts right at the tape in the picture, and from the corner it flies sideways or even down the picture, so the picture rules below (start well under the tape, climb) would drop it. A track that starts at a moving shape standing 4 m or more inside the near half is let through; the flight fit and the checks after it decide (synthetic corner video with net volleys, tools/synth: 0 of 6 volleys were candidates).
++  const atNet = (i, u, v) => { for (let j = Math.max(0, i - 6); j <= Math.min(frames.length - 1, i + 2); j++) for (const b of frames[j].blobs) { const w = b[2] - b[0], h = b[3] - b[1]; if (h < 0.025 * H || h > 0.7 * H) continue; if (u < b[0] - 2.5 * w - 40 * s || u > b[2] + 2.5 * w + 40 * s || v < b[1] - 1.5 * h - 40 * s || v > b[3]) continue; const g = cam.ground((b[0] + b[2]) / 2, b[3]); if (g && g[1] > 4 && g[1] < COURT.NET - 0.3 && Math.abs(g[0]) < COURT.D + 1) return true; } return false; };
+   for (let a = 0; a < segs.length; a++) { if (used.has(a)) continue; const q = segs[a], x0 = q[0][1], y0 = q[0][2];
+-    if (y0 < cam.tapeY(x0) + 25 * s) continue; if (q[q.length - 1][2] > y0 - 30 * s) continue;
++    const net = y0 > cam.tapeY(x0) - 60 * s && y0 < cam.tapeY(x0) + 25 * s * 4 && atNet(q[0][0], x0, y0); if (globalThis.__dbgT && Math.abs(ts[q[0][0]] - globalThis.__dbgT) < 1) console.log('SEG', ts[q[0][0]].toFixed(3), q.length, Math.round(x0), Math.round(y0), 'tape', Math.round(cam.tapeY(x0)), 'end', Math.round(q[q.length - 1][1]), Math.round(q[q.length - 1][2]), 'net', net, atNet(q[0][0], x0, y0)); /*DBG*/
++    if (!net && y0 < cam.tapeY(x0) + 25 * s) continue; if (!net && q[q.length - 1][2] > y0 - 30 * s) continue;
+     const chain = [q]; used.add(a);
+     for (let b = a + 1; b < segs.length; b++) { if (used.has(b)) continue; const r = segs[b], last = chain[chain.length - 1], gap = r[0][0] - last[last.length - 1][0]; if (gap > 6 / fs) break; if (gap < -1) continue;
+       const k = Math.min(last.length, 6), sg = last.slice(-k), f = sg.map(p => p[0] - r[0][0]); const px = polyval(polyfit(f, sg.map(p => p[1]), 1), 0), py = polyval(polyfit(f, sg.map(p => p[2]), k >= 4 ? 2 : 1), 0);
+@@ -431,7 +434,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
+     const seen = new Set(), pts = []; for (const sg of chain) for (const p of sg) if (!seen.has(p[0])) { seen.add(p[0]); pts.push(p); }
+     pts.sort((u, v) => u[0] - v[0]); if (pts.length < 7) continue;
+     const k = Math.min(5, pts.length), vy = polyfit(pts.slice(0, k).map(p => ts[p[0]]), pts.slice(0, k).map(p => p[2]), 1)[1];
+-    if (vy > -0.2 * H) continue; cands.push(pts); }
++    if (vy > -0.2 * H && !net) continue; cands.push(pts); }
+   // per candidate: observations and where the hitter stands (lowest edge of the moving blob next to the first ball position)
+   const obs = cands.map(pts => { const t0 = ts[pts[0][0]], t = pts.map(p => ts[p[0]] - t0), uv = pts.map(p => [p[1], p[2]]); let feet = null; const i0 = pts[0][0];
+     for (let i = Math.max(0, i0 - 8); i <= Math.min(frames.length - 1, i0 + 2); i++) for (const b of frames[i].blobs) { const w = b[2] - b[0], h = b[3] - b[1]; if (h < 0.08 * H || h > 0.7 * H) continue;
