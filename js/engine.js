@@ -712,6 +712,8 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
       if (best) { const d = cam.ray(best.u, best.v), k = (q.p0[1] - cam.C[1]) / d[1]; if (k > 0) { const z = cam.C[2] + k * d[2], x = cam.C[0] + k * d[0]; if (z > q.p0[2] - 0.3 && z < 7) q.toss = { z: +z.toFixed(2), x: +x.toFixed(2), dt: +(q.t - best.t).toFixed(3), top: best.top }; } } } }
   // Serve practice reports serves only, and a serve is neither a lob nor a record: whatever comes out slower than 50 or faster than 215 km/h is a fit gone wrong, not a serve.
   if (mode === 'serve') for (let i = shots.length - 1; i >= 0; i--) if (!(shots[i].speed >= 50 && shots[i].speed <= 215)) { shots.splice(i, 1); meta.rej.speed++; }
+  // Spin is the most fragile number (doc: compare medians, not single shots). When the fitted lift runs into its limit the spin it implies is beyond anything a racket gives (coach session: 33,771 rpm): shown at the edge of the plausible, 4,500 rpm, with a wide margin, and marked.
+  for (const q of shots) if (Math.abs(q.rpm) > 4500) { q.rpmRaw = Math.round(q.rpm); q.rpm = Math.sign(q.rpm) * 4500; q.rpmSd = Math.max(q.rpmSd || 0, 1500); q.spinLoose = true; meta.spinLoose = (meta.spinLoose || 0) + 1; }
   ms.all = Date.now() - T0; meta.ms = ms; shots.sort((a, b) => a.t - b.t); shots.meta = meta; return shots;
 }
 
