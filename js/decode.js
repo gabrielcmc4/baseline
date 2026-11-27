@@ -1,7 +1,7 @@
 // Reads every frame of a video file in the browser. WebCodecs + mp4box when possible, <video> playback otherwise.
 const MAX_SIDE = 1600;
 function loadVideo(file) { return new Promise((res, rej) => { const v = document.createElement('video'); v.muted = true; v.playsInline = true; v.preload = 'metadata'; v.src = URL.createObjectURL(file);
-  v.onloadedmetadata = () => res(v); v.onerror = () => rej(new Error('unsupported')); }); }
+  const to = setTimeout(() => rej(new Error('timeout')), 30000); v.onloadedmetadata = () => { clearTimeout(to); res(v); }; v.onerror = () => { clearTimeout(to); rej(new Error('unsupported')); }; }); } // a browser that never answers (seen once after a long session in the same tab) must not leave the page waiting forever
 export async function probe(file) { const v = await loadVideo(file); const sc = Math.min(1, MAX_SIDE / Math.max(v.videoWidth, v.videoHeight));
   return { video: v, W: Math.round(v.videoWidth * sc / 2) * 2, H: Math.round(v.videoHeight * sc / 2) * 2, duration: v.duration }; }
 export async function grabFrame(info, t) { const v = info.video; await new Promise(res => { const done = () => { v.removeEventListener('seeked', done); res(); }; v.addEventListener('seeked', done); v.currentTime = Math.min(Math.max(0, t), Math.max(0, info.duration - 0.05)); setTimeout(done, 4000); });
