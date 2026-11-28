@@ -3,7 +3,7 @@
 D=${1:-/tmp/syn}; shift
 for v in "$D"/*.mp4; do t="${v%.mp4}.truth.json"; [ -f "$t" ] || continue; case "$v" in *_test*|*/a.mp4|*/b.mp4|*/x.mp4) continue;; esac
   mode=$(python3 -c "import json,sys;print(json.load(open('$t')).get('mode','match'))" 2>/dev/null || echo match)
-  ( node "$(dirname "$0")/run.mjs" "$v" "$mode" --json "${v%.mp4}.res.json" "$@" > "${v%.mp4}.out" 2>&1 ) &
+  rm -f "${v%.mp4}.res.json"; ( node "$(dirname "$0")/run.mjs" "$v" "$mode" --json "${v%.mp4}.res.json" "$@" > "${v%.mp4}.out" 2>&1 ) &
 done; wait
 for v in "$D"/*.mp4; do o="${v%.mp4}.out"; [ -f "${v%.mp4}.res.json" ] || continue; [ "$o" -nt "$v" ] || continue
   python3 - "$v" <<'PY'
