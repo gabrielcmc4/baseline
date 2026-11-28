@@ -6,6 +6,8 @@ export const fastOn = () => !!FASTMOD;
 export const COURT = { S: 4.115, D: 5.485, SV: 6.40, LEN: 23.77, NET: 11.885, POST: 6.4, NET_C: 0.914, NET_P: 1.07 };
 COURT.SV = 5.485; // service line distance from baseline
 const G = 9.81, KD = 0.0204, KM = 0.0371, RB = 0.0335;
+// Drag grows with spin (wind tunnel, Goodwill, Chin & Haake 2004: CD = 0.55 + 1 / (22.5 + 4.2 (v / r w)^2.5)^0.4). The fit measures spin through the lift coefficient CL = 1 / (2 + v / r w) (Watts & Ferrer), so v / r w = 1 / CL - 2 and the drag follows from CL. Without it a topspin ball slows down faster than the model expects and its speed off the racket was read low. The spin a single camera measures is loose, though (often twice the true value), and more spin then meant more drag and a speed read high: so the drag follows CL only up to 0.10 (about 1,200 rpm at 110 km/h; CD 0.62 at most). Synthetic rallies made with spin-dependent drag (tools/synth, 61 shots): typical speed error 6.6 % -> 4.8 %, average -2.5 % -> +0.3 % (cap 0.15: 5.0 %, +2.4 %; 0.22: 6.3 %, +4.8 %).
+const kdOf = cl => { const c = Math.min(Math.abs(cl), 0.10); if (c < 1e-3) return KD; const r = 1 / c - 2; return KM * (0.55 + 1 / Math.pow(22.5 + 4.2 * Math.pow(r, 2.5), 0.4)); };
 export const netHeight = x => COURT.NET_C + (COURT.NET_P - COURT.NET_C) * Math.min(1, Math.abs(x) / COURT.POST) ** 2;
 
 // ---------- small linear algebra ----------
@@ -289,22 +291,22 @@ function smoothRms(q) { if (q.length > 20) { let s = 0, k = 0; for (let a = 0; a
   const f = q.map(p => p[0] - q[0][0]), dg = q.length >= 5 ? 2 : 1; let s = 0; for (const c of [1, 2]) { const co = polyfit(f, q.map(p => p[c]), dg); q.forEach((p, i) => s += (p[c] - polyval(co, f[i])) ** 2); } return Math.sqrt(s / (2 * q.length)); }
 
 // ---------- flight physics ----------
-function acc(v, cl, cs = 0) { const sp = Math.hypot(v[0], v[1], v[2]); const a = [-KD * sp * v[0], -KD * sp * v[1], -G - KD * sp * v[2]];
+function acc(v, cl, cs = 0) { const sp = Math.hypot(v[0], v[1], v[2]), kd = kdOf(cl); const a = [-kd * sp * v[0], -kd * sp * v[1], -G - kd * sp * v[2]];
   if (cl !== 0 && sp > 1e-6) { const ez = v[2] / sp, p = [ez * v[0] / sp, ez * v[1] / sp, -1 + ez * ez], n = Math.hypot(...p); if (n > 1e-9) { const k = KM * cl * sp * sp / n; a[0] += k * p[0]; a[1] += k * p[1]; a[2] += k * p[2]; } }
   if (cs) { const hv = Math.hypot(v[0], v[1]); if (hv > 1e-6) { const k = KM * cs * sp * sp / hv; a[0] -= k * v[1]; a[1] += k * v[0]; } } return a; } // cs: sidespin (slice serves curve sideways), lift across the flight, positive to the left of the direction of play
 function rk4(p, v, cl, h, cs = 0) { const a1 = acc(v, cl, cs), v2 = v.map((q, i) => q + 0.5 * h * a1[i]), a2 = acc(v2, cl, cs), v3 = v.map((q, i) => q + 0.5 * h * a2[i]), a3 = acc(v3, cl, cs), v4 = v.map((q, i) => q + h * a3[i]), a4 = acc(v4, cl, cs);
   for (let i = 0; i < 3; i++) { p[i] += h / 6 * (v[i] + 2 * v2[i] + 2 * v3[i] + v4[i]); v[i] += h / 6 * (a1[i] + 2 * a2[i] + 2 * a3[i] + a4[i]); } }
 // The same flight step as rk4 above, written out on plain numbers: this runs millions of times inside the fit, and building small arrays for every step was most of the fitting time. Same arithmetic in the same order (lengths by a plain square root, which differs from Math.hypot only in the last digit).
-export function simulateAt(x, times) { let p0 = x[0], p1 = x[1], p2 = x[2], v0 = x[3], v1 = x[4], v2 = x[5]; const cl = x[6] || 0, cs = x[7] || 0, out = []; let t = 0, a0 = 0, a1 = 0, a2 = 0;
-  const A = (w0, w1, w2) => { const sp = Math.sqrt(w0 * w0 + w1 * w1 + w2 * w2); a0 = -KD * sp * w0; a1 = -KD * sp * w1; a2 = -G - KD * sp * w2;
+export function simulateAt(x, times) { let p0 = x[0], p1 = x[1], p2 = x[2], v0 = x[3], v1 = x[4], v2 = x[5]; const cl = x[6] || 0, cs = x[7] || 0, kd = kdOf(cl), out = []; let t = 0, a0 = 0, a1 = 0, a2 = 0;
+  const A = (w0, w1, w2) => { const sp = Math.sqrt(w0 * w0 + w1 * w1 + w2 * w2); a0 = -kd * sp * w0; a1 = -kd * sp * w1; a2 = -G - kd * sp * w2;
     if (cl !== 0 && sp > 1e-6) { const ez = w2 / sp, q0 = ez * w0 / sp, q1 = ez * w1 / sp, q2 = -1 + ez * ez, n = Math.sqrt(q0 * q0 + q1 * q1 + q2 * q2); if (n > 1e-9) { const k = KM * cl * sp * sp / n; a0 += k * q0; a1 += k * q1; a2 += k * q2; } }
     if (cs) { const hv = Math.sqrt(w0 * w0 + w1 * w1); if (hv > 1e-6) { const k = KM * cs * sp * sp / hv; a0 -= k * w1; a1 += k * w0; } } };
   for (const tq of times) { let rem = tq - t; const n = Math.max(1, Math.ceil(rem * 50 - 1e-9)); /* steps of at most 20 ms: for a ball in flight a fourth-order step that long is exact to a fraction of a millimetre */ for (let k = 0; k < n && rem > 1e-9; k++) { const h = rem / (n - k) > 0 ? (tq - t) / (n - k) : 0;
       A(v0, v1, v2); const b0 = a0, b1 = a1, b2 = a2, x0 = v0 + 0.5 * h * b0, x1 = v1 + 0.5 * h * b1, x2 = v2 + 0.5 * h * b2; A(x0, x1, x2); const c0 = a0, c1 = a1, c2 = a2, y0 = v0 + 0.5 * h * c0, y1 = v1 + 0.5 * h * c1, y2 = v2 + 0.5 * h * c2; A(y0, y1, y2); const d0 = a0, d1 = a1, d2 = a2, z0 = v0 + h * d0, z1 = v1 + h * d1, z2 = v2 + h * d2; A(z0, z1, z2);
       p0 += h / 6 * (v0 + 2 * x0 + 2 * y0 + z0); p1 += h / 6 * (v1 + 2 * x1 + 2 * y1 + z1); p2 += h / 6 * (v2 + 2 * x2 + 2 * y2 + z2); v0 += h / 6 * (b0 + 2 * c0 + 2 * d0 + a0); v1 += h / 6 * (b1 + 2 * c1 + 2 * d1 + a1); v2 += h / 6 * (b2 + 2 * c2 + 2 * d2 + a2); t += (tq - t) / (n - k); } t = tq; out.push([p0, p1, p2]); } return out; }
 // The flight run backwards in time (same model as simulateAt) until the ball is at depth yT; returns [position, velocity, time (negative)] there, or null.
-export function backTo(x, yT, tMax = 1.5) { let p = [x[0], x[1], x[2]], v = [x[3], x[4], x[5]]; const cl = x[6] || 0, h = -0.01;
-  const acc = w => { const sp = Math.hypot(w[0], w[1], w[2]); const a = [-KD * sp * w[0], -KD * sp * w[1], -G - KD * sp * w[2]]; if (cl !== 0 && sp > 1e-6) { const ez = w[2] / sp, q = [ez * w[0] / sp, ez * w[1] / sp, -1 + ez * ez], n = Math.hypot(q[0], q[1], q[2]); if (n > 1e-9) { const k = KM * cl * sp * sp / n; a[0] += k * q[0]; a[1] += k * q[1]; a[2] += k * q[2]; } } return a; };
+export function backTo(x, yT, tMax = 1.5) { let p = [x[0], x[1], x[2]], v = [x[3], x[4], x[5]]; const cl = x[6] || 0, h = -0.01, kd = kdOf(cl);
+  const acc = w => { const sp = Math.hypot(w[0], w[1], w[2]); const a = [-kd * sp * w[0], -kd * sp * w[1], -G - kd * sp * w[2]]; if (cl !== 0 && sp > 1e-6) { const ez = w[2] / sp, q = [ez * w[0] / sp, ez * w[1] / sp, -1 + ez * ez], n = Math.hypot(q[0], q[1], q[2]); if (n > 1e-9) { const k = KM * cl * sp * sp / n; a[0] += k * q[0]; a[1] += k * q[1]; a[2] += k * q[2]; } } return a; };
   const dir = Math.sign(yT - x[1]); if (!dir || Math.sign(-x[4]) !== dir) return null; // going back must bring the ball towards yT
   for (let t = 0; t > -tMax; t += h) { const k1 = acc(v), v2 = v.map((z, i) => z + h / 2 * k1[i]), k2 = acc(v2), v3 = v.map((z, i) => z + h / 2 * k2[i]), k3 = acc(v3), v4 = v.map((z, i) => z + h * k3[i]), k4 = acc(v4);
     const pn = p.map((z, i) => z + h / 6 * (v[i] + 2 * v2[i] + 2 * v3[i] + v4[i])), vn = v.map((z, i) => z + h / 6 * (k1[i] + 2 * k2[i] + 2 * k3[i] + k4[i]));

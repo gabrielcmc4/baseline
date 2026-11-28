@@ -27,4 +27,6 @@ rep("if (fit.rms > 3) { meta.rej.rms++; return; }", "if (fit.rms > 3) { TR('n:rm
 // near rejections (inside the per-candidate function, t0 is the candidate start)
 e = e.replace(/meta\.rej\.(\w+)\+\+; return;/g, (m, k) => `{ try { TR('n:' + '${k}', t0); } catch (er) {} meta.rej.${k}++; return; }`);
 e = e.replace(/meta\.rej\.(\w+) = \(meta\.rej\.\1 \|\| 0\) \+ 1; return;/g, (m, k) => `{ try { TR('n:' + '${k}', t0); } catch (er) {} meta.rej.${k} = (meta.rej.${k} || 0) + 1; return; }`);
+if (process.env.KDCAP) e = e.replace('Math.min(Math.abs(cl), 0.22)', 'Math.min(Math.abs(cl), ' + process.env.KDCAP + ')');
+if (process.env.CDCONST) e = e.replace('const kdOf = cl => {', 'const kdOf = cl => KD; const kdOld = cl => {');
 writeFileSync(out, e); console.log('written', out.pathname);

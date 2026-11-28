@@ -41,7 +41,7 @@ if (existsSync(truthPath)) { const T = JSON.parse(readFileSync(truthPath)); out.
   for (const s of T.shots) { let best = null, bd = 0.35; shots.forEach((q, i) => { if (used.has(i) || !!q.far !== s.far) return; const d = Math.abs(hitT(q) - s.t); if (d < bd) { bd = d; best = i; } });
     const q = best != null ? shots[best] : null; if (best != null) used.add(best);
     rows.push({ t: s.t, far: s.far, volley: s.volley, truth: { speed: s.speed, result: s.result, land: s.land, clear: s.clear, rpm: Math.round(s.rpm) },
-      got: q ? { dt: +(hitT(q) - s.t).toFixed(3), speed: +q.speed.toFixed(1), result: q.result, land: q.land && q.land.map(v => +v.toFixed(2)), clear: q.clear != null ? +q.clear.toFixed(2) : null, rpm: q.spin != null ? Math.round(q.spin) : null, volley: !!q.volley, serve: !!q.serve } : null }); }
+      got: q ? { dt: +(hitT(q) - s.t).toFixed(3), speed: +q.speed.toFixed(1), result: q.result, land: q.land && q.land.map(v => +v.toFixed(2)), clear: q.clear != null ? +q.clear.toFixed(2) : null, rpm: q.rpm != null ? Math.round(q.rpm) : null, volley: !!q.volley, serve: !!q.serve } : null }); }
   const extra = shots.map((q, i) => used.has(i) ? null : { t: +hitT(q).toFixed(2), far: !!q.far, speed: +q.speed.toFixed(0), result: q.result, land: q.land && q.land.map(v => +v.toFixed(1)) }).filter(Boolean);
   const m = rows.filter(r => r.got), sp = m.map(r => r.got.speed / r.truth.speed - 1), ld = m.filter(r => r.truth.land && r.got.land).map(r => Math.hypot(r.truth.land[0] - r.got.land[0], r.truth.land[1] - r.got.land[1]));
   const res = m.filter(r => r.truth.result !== 'none'), resOk = res.filter(r => r.got.result === r.truth.result || (r.truth.result !== 'in' && r.truth.result !== 'net' && ['long', 'wide'].includes(r.got.result)));
