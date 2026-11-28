@@ -582,7 +582,7 @@ function analyzeCore(frames, cam, { mode = 'coach', onProgress, yOff = 1.25, ySd
   }; obs.forEach(one);
   ms.near = Date.now() - T0;
   // The near shots found only by the newer ways (a ball first seen above the tape, a track fitted on its first part) add to the ordinary ones and never stand in for one: where an ordinary shot is within 0.4 s, the extra one goes.
-  for (let i = shots.length - 1; i >= 0; i--) { const q = shots[i]; if (q.far || !q.extra) continue; if (shots.some(r => r !== q && !r.far && !r.extra && Math.abs(r.t - q.t) < 0.4)) shots.splice(i, 1); else meta.extraNear = (meta.extraNear || 0) + 1; }
+  for (let i = shots.length - 1; i >= 0; i--) { const q = shots[i]; if (q.far || !q.extra) continue; if (shots.some(r => r !== q && !r.far && !r.extra && Math.abs(r.t - q.t) < 0.4) || (!q.serve && q.speed > 150)) shots.splice(i, 1); else meta.extraNear = (meta.extraNear || 0) + 1; } // and no groundstroke over 150 km/h from them (lesson 27/11: a real hit at the service line read 191 km/h)
   // ---- serves hit from the near side. Seen from a camera a few metres up, the ball leaves the racket above the net tape in the picture and comes DOWN the picture while it flies away, so it never qualifies as an ordinary near-side shot.
   const usedS = new Set(), noPre = new Set(); meta.nearServes = 0;
   if (!only) for (let a = 0; a < segs.length; a++) { if (usedS.has(a)) continue; const q = segs[a], x0 = q[0][1], y0 = q[0][2], e0 = q[q.length - 1];
