@@ -60,6 +60,16 @@ Security choices:
 
 [mp4box.js](https://github.com/gpac/mp4box.js) (BSD-3-Clause). Fonts: Marcellus and Jost (SIL Open Font License).
 
+## What changed on 2026-11-28: synthetic test videos, more shots found
+- **Synthetic videos with an answer key** (`tools/synth`): rallies, serves, net cords, balls on the lines, a second court beside, from behind and from the corner, drawn by code and run through the engine in Node. On the 7 test videos the engine found 89 of 178 shots; now 112 (shots that never happened: 2 before, 6 now), with the same in/out accuracy.
+- **What was found and fixed**, each change only adding shots (on the real videos 27/11 no shot already found changed or was lost, except 10 of 593 in the corner match):
+  - a far ball that peaks above the camera's height climbs in the picture before it comes down, and its track was dropped for not coming down enough;
+  - the tracker picks the ball up before the far player hits it (it follows his racket, or the ball rising off its bounce in one smooth line), so no flight fitted: later starts are tried;
+  - a track that runs on past the far bounce is fitted on its first part;
+  - a hard ball near the camera is only picked up above the net tape, a few pictures after the hit: if it runs back to the near player, it is his shot.
+- **Checked on the real videos**: lesson 27/11 +8 shots (all eight real hits on the frames), Leo match +67 near and +30 far (eight of them checked on the frames, all real).
+- **Tried and left out**: drag that grows with spin (better on synthetic balls, but real lesson speeds jumped, 81 to 118 km/h, because the measured spin is loose); a candidate for balls volleyed at the net (hundreds of false ones in the corner match).
+
 ## What changed on 2026-11-27 (evening): points, rallies and volleys
 - **New report panel "Pontos, ralis e voleios"** (match and lesson, sessions measured in this browser). Shots are grouped into rallies by the one-bounce rule (`js/rally.js`, written earlier but never shown): number of rallies, longest, length bins, the five longest with a button to watch them.
 - **Who won the point, honestly.** Only what the last measured ball says: your ball in and not returned, or his error = yours; your error = his. A rally that ends with *his* ball in is shown apart ("his point, or your reply was not measured"): from the corner the camera misses more of the near player's shots, and on the Leo match counting those as lost points gave 157 lost to 69 won.
