@@ -9,8 +9,10 @@ Videos drawn by code, with an answer key, so the analysis can be tested on cases
 
 Needs Python 3 with numpy and OpenCV, ffmpeg, Node 20+.
 
-## First results (27/11/2026)
-- The court and camera are found from the picture almost exactly (behind: 6.27 m back and 2.89 m high, true 6.2 and 2.9).
-- Only about half the shots are found, in clean conditions. Near shots that skim the net come out too slow and short (113 km/h read as 85–90, landing 2.7 m short).
-- Speed reads 4–6 % low on average; with the engine's own fixed drag in the simulation it is still 4 % low, so the drag model is not the main cause.
-- From the corner, net volleys are never candidates: the picture rules for a near ball (starts well under the tape, climbs) do not hold for a ball volleyed at the net. A first loosening lets them through to the fit, where they are still lost: work in progress, not in the app.
+Scenarios: `python3 scenario.py rally|volley|serve|netcord|lines out.json [--neighbor]`. Battery: `./battery.sh /tmp/syn` (one line per video). `run.mjs ... --trace` says why each track was dropped; `ENGINE=path` runs another copy of the engine.
+
+## Results
+- 27/11: the court and camera are found almost exactly; only about half the shots were found.
+- 28/11: four causes found and fixed (see the main README, 2026-11-28): 89 -> 112 of 178 shots on the seven test videos. Checked on the six stored real videos before going into the app: no shot lost, new ones real.
+- Left out after the real-video check: spin-dependent drag (unstable real speeds), net-volley candidates (hundreds of false shots from the corner).
+- Still weak: balls within 20 cm of a line (13 of 19 called right), volleys at the net seen from the corner.
