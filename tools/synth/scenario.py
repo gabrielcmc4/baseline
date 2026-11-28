@@ -13,26 +13,24 @@ import sim
 C = sim.COURT
 
 
-def result_of(land, far_hitter, serve=None):
-    """land: bounce point of a ball hit by the near player (far_hitter False) or the far one."""
+def result_of(land, far_hitter, server_x=None):
+    """land: bounce point of a ball hit by the near player (far_hitter False) or the far one.
+    server_x: for a serve, where the server stood across the court (the ball must land in the box diagonal to him)."""
     x, y = land[0], land[1]
-    if serve:  # service box diagonal to the server; serve = +1 (deuce: server right of centre) or -1
-        if far_hitter:
-            ok_y = C['NET'] - C['SV'] <= y <= C['NET']
-            ok_x = (0 <= -x * serve * -1 <= C['S']) if False else (0 <= x * serve <= C['S'])
-        else:
-            ok_y = C['NET'] <= y <= C['NET'] + C['SV']
-            ok_x = 0 <= -x * serve <= C['S']
+    if server_x is not None:
+        ok_y = (C['NET'] - C['SV'] <= y <= C['NET']) if far_hitter else (C['NET'] <= y <= C['NET'] + C['SV'])
         if not ok_y:
             return 'long'
-        return 'in' if ok_x else 'wide'
+        return 'in' if (x * server_x <= 0 and abs(x) <= C['S']) else 'wide'
     if abs(x) > C['S']:
-        long_ = (y > C['LEN']) if not far_hitter else (y < 0)
-        return 'long' if long_ and abs(x) - C['S'] < (y - C['LEN'] if not far_hitter else -y) else 'wide'
-    if not far_hitter and (y > C['LEN'] or y < C['NET']):
-        return 'long' if y > C['LEN'] else 'short?'
-    if far_hitter and (y < 0 or y > C['NET']):
-        return 'long' if y < 0 else 'short?'
+        over = (y - C['LEN']) if not far_hitter else -y
+        return 'long' if over > 0 and over > abs(x) - C['S'] else 'wide'
+    if not far_hitter and y > C['LEN']:
+        return 'long'
+    if far_hitter and y < 0:
+        return 'long'
+    if (not far_hitter and y < C['NET']) or (far_hitter and y > C['NET']):
+        return 'short?'
     return 'in'
 
 
@@ -43,7 +41,7 @@ class Scene:
         self.ball = []          # list of (t, x, y, z) samples, None separators between dead balls
         self.shots = []         # answer key
         self.players = {'near': [], 'far': []}   # keyframes (t, x, y, swing) swing: None or (t_hit, hand, kind)
-        self.t = 1.0
+        self.t = 2.0
         self.extra_balls = []   # (t0, t1, samples) balls from elsewhere (other court)
 
     # --- player keyframes
@@ -117,6 +115,27 @@ class Scene:
                     out, ev = self.flight(p0, v0, s.get('rpm', 0), t_hit, bounces=0)
                     if any(e[0] == 'net' for e in ev):
                         break
+            if s.get('skim') is not None:
+                # lower the elevation until the ball just clears the tape by about s['skim'] metres (net-cord balls that go over)
+                sp = np.linalg.norm(v0); best = v0
+                for k in range(120):
+                    el = math.asin(v0[2] / sp) - math.radians(0.08)
+                    hz = math.hypot(v0[0], v0[1])
+                    v1 = np.array([v0[0] / hz * sp * math.cos(el), v0[1] / hz * sp * math.cos(el), sp * math.sin(el)])
+                    o1, e1 = self.flight(p0, v1, s.get('rpm', 0), t_hit, bounces=0)
+                    if any(e[0] == 'net' for e in e1):
+                        break
+                    v0 = v1; cr1 = [e for e in e1 if e[0] == 'cross']
+                    if cr1 and cr1[0][2][2] - sim.R - sim.net_height(cr1[0][2][0]) < s['skim']:
+                        break
+            if s.get('serve') and i == 0:
+                # the toss: from the free hand (1.5 m, a little forward) up about 0.5 m above the contact and back down to it
+                top = p0[2] + 0.5; up = math.sqrt(2 * 9.81 * (top - 1.5)); down = math.sqrt(2 * 9.81 * (top - p0[2])); T = (up + down) / 9.81
+                hand = np.array([p0[0] - 0.15, p0[1] + (-0.2 if far else 0.2), 1.5]); ts0 = t_hit - T
+                self.ball.append(None)
+                for k in range(int(T * 240) + 1):
+                    tt = k / 240; z = 1.5 + up * tt - 4.905 * tt * tt; f = tt / T
+                    self.ball.append((round(ts0 + tt, 4), float(hand[0] + (p0[0] - hand[0]) * f), float(hand[1] + (p0[1] - hand[1]) * f), float(z)))
             out, ev = self.flight(p0, v0, s.get('rpm', 0), t_hit, bounces=2, side_rpm=s.get('side_rpm', 0.0))
             bnc = [e for e in ev if e[0] == 'bounce']; net = [e for e in ev if e[0] == 'net']; cr = [e for e in ev if e[0] == 'cross']
             key = dict(t=round(t_hit, 3), who=who, far=far, p0=[round(float(v), 3) for v in p0], feet=[round(float(feet[0]), 2), round(float(feet[1]), 2)],
@@ -128,7 +147,7 @@ class Scene:
                 key['result'] = 'net'; key['land'] = None
             elif bnc:
                 L = bnc[0][2]; key['land'] = [round(float(L[0]), 3), round(float(L[1]), 3)]; key['tLand'] = round(bnc[0][1] - t_hit, 3)
-                key['result'] = result_of(L, far, s.get('serve') and (s['serve'] if not far else s['serve']))
+                key['result'] = result_of(L, far, float(p0[0]) if s.get('serve') else None)
             else:
                 key['result'] = 'none'
             self.shots.append(key)
@@ -227,11 +246,86 @@ def volley_scene(seed=2, n_points=6):
     return sc
 
 
+def serve_scene(seed=3, n_points=12):
+    """serves from both ends, both sides, with faults (long, wide, net) and some returns"""
+    sc = Scene(seed); rng = sc.rng; sc.ready(0)
+    for k in range(n_points):
+        sc.ready(sc.t - 0.4)
+        far = (k // 4) % 2 == 1; who = 'far' if far else 'near'; side = 1 if k % 2 == 0 else -1
+        sx_sign = side * (-1 if far else 1)          # where the server stands across the court
+        tx = -sx_sign * rng.uniform(0.4, 3.8)
+        depth = rng.uniform(2.5, 6.1)
+        ty = (C['NET'] - depth) if far else (C['NET'] + depth)
+        kind = rng.random(); sh = dict(who=who, speed=rng.uniform(115, 185), rpm=rng.uniform(400, 2500), target=(tx, ty), serve=side)
+        if kind < 0.15:
+            sh['target'] = (tx, (C['NET'] - C['SV'] - rng.uniform(0.15, 1.0)) if far else (C['NET'] + C['SV'] + rng.uniform(0.15, 1.0)))
+        elif kind < 0.25:
+            sh['target'] = (-sx_sign * (C['S'] + rng.uniform(0.1, 0.8)), ty)
+        elif kind < 0.35:
+            sh['into_net'] = True
+        shots = [sh]
+        if kind >= 0.35 and rng.random() < 0.6:
+            shots.append(dict(who='near' if far else 'far', speed=rng.uniform(70, 110), rpm=rng.uniform(600, 2000), target=(rng.uniform(-3, 3), (rng.uniform(17, 22)) if far else rng.uniform(2, 7))))
+        sc.point(shots)
+        sc.gap(rng.uniform(2.5, 4.0))
+    return sc
+
+
+def netcord_scene(seed=4, n_points=10):
+    """rallies whose last ball is a net cord: into the tape, or just over it"""
+    sc = Scene(seed); rng = sc.rng; sc.ready(0)
+    for k in range(n_points):
+        sc.ready(sc.t - 0.4)
+        first_far = rng.random() < 0.5; n = rng.randint(2, 4); shots = []
+        for i in range(n):
+            who = 'far' if (i % 2 == 0) == first_far else 'near'; far = who == 'far'
+            depth = rng.uniform(17.5, 22); sh = dict(who=who, speed=rng.uniform(80, 120), rpm=rng.uniform(800, 2400), target=(rng.uniform(-3.4, 3.4), depth if not far else C['LEN'] - depth))
+            if i == n - 1:
+                if rng.random() < 0.5: sh['into_net'] = True
+                else: sh['skim'] = rng.uniform(0.02, 0.12)
+            shots.append(sh)
+        sc.point(shots); sc.gap(rng.uniform(2.0, 3.0))
+    return sc
+
+
+def lines_scene(seed=5, n_points=10):
+    """balls aimed at the lines: within 20 cm in or out of the baseline or a sideline"""
+    sc = Scene(seed); rng = sc.rng; sc.ready(0)
+    for k in range(n_points):
+        sc.ready(sc.t - 0.4)
+        first_far = rng.random() < 0.5; n = rng.randint(2, 4); shots = []
+        for i in range(n):
+            who = 'far' if (i % 2 == 0) == first_far else 'near'; far = who == 'far'
+            depth = rng.uniform(17.5, 21.5); tx = rng.uniform(-3.2, 3.2); ty = depth if not far else C['LEN'] - depth
+            if i == n - 1 or rng.random() < 0.3:
+                if rng.random() < 0.5: tx = math.copysign(C['S'] + rng.uniform(-0.2, 0.2), tx)
+                else: ty = (C['LEN'] + rng.uniform(-0.2, 0.2)) if not far else rng.uniform(-0.2, 0.2)
+            shots.append(dict(who=who, speed=rng.uniform(80, 120), rpm=rng.uniform(800, 2400), target=(tx, ty)))
+        sc.point(shots); sc.gap(rng.uniform(2.0, 3.0))
+    return sc
+
+
+def add_neighbor(sc, seed=9, ox=2 * C['D'] + 3.6):
+    """a rally on the court beside this one, its balls only (no answer key: they must not be reported)"""
+    nb = rally_scene(seed, n_points=12)
+    segs, cur = [], []
+    for b in nb.ball:
+        if b is None:
+            if cur: segs.append(cur); cur = []
+        else:
+            cur.append([b[0], b[1] + ox, b[2], b[3]])
+    if cur: segs.append(cur)
+    sc.extra_balls = [g for g in segs if g[0][0] < sc.t]
+    return sc
+
+
 if __name__ == '__main__':
     import sys
     kind = sys.argv[1] if len(sys.argv) > 1 else 'rally'
-    sc = {'rally': rally_scene, 'volley': volley_scene}[kind]()
-    sc.dump(sys.argv[2] if len(sys.argv) > 2 else f'/tmp/synth_{kind}.json', dict(kind=kind))
+    sc = {'rally': rally_scene, 'volley': volley_scene, 'serve': serve_scene, 'netcord': netcord_scene, 'lines': lines_scene}[kind]()
+    if '--neighbor' in sys.argv: add_neighbor(sc)
+    sys.argv = [a for a in sys.argv if a != '--neighbor']
+    sc.dump(sys.argv[2] if len(sys.argv) > 2 else f'/tmp/synth_{kind}.json', dict(kind=kind, mode='match'))
     for s in sc.shots:
         print(s['t'], s['who'], s['speed'], s['result'], s.get('land'), s.get('clear'), 'V' if s['volley'] else '')
     print('duration', round(sc.t, 1))

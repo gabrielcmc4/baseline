@@ -18,7 +18,7 @@ rep("if (speed < 25 || speed > 240) continue; // speed off", "if (speed < 25 || 
 rep("const sum = flightSummary(x); if (!sum.land) continue;\n      const sd = covariance", "const sum = flightSummary(x); if (!sum.land) { TR('f:noland', t0); continue; }\n      const sd = covariance");
 rep("|| [9, 9, 9, 9]; if (sd[1] > (ground ? 3 : 1.5)) continue;", "|| [9, 9, 9, 9]; if (sd[1] > (ground ? 3 : 1.5)) { TR('f:sd' + sd[1].toFixed(1) + (ground ? 'g' : ''), t0); continue; }");
 rep("shots.push({ t: t0, who: mode === 'serve' ? 'me' : 'opp', far: true,", "TR('f:ok', t0); shots.push({ t: t0, who: mode === 'serve' ? 'me' : 'opp', far: true,");
-rep("    shots.push({ t: tHit, hit: hitSeen, who: 'me', far: false,", "    TR('n:ok', t0); shots.push({ t: tHit, hit: hitSeen, who: 'me', far: false,");
+rep("    shots.push({ extra: (o.back || o.fb) || undefined, t: tHit,", "    TR('n:ok', t0); shots.push({ extra: (o.back || o.fb) || undefined, t: tHit,");
 // near candidates
 rep("if (!back && y0 < cam.tapeY(x0) + 25 * s) continue; if (!net && q[q.length - 1][2] > y0 - 30 * s) continue;", "if (!back && y0 < cam.tapeY(x0) + 25 * s) { TR('n:start', ts[q[0][0]]); continue; } if (!net && q[q.length - 1][2] > y0 - 30 * s) { TR('n:climb', ts[q[0][0]]); continue; }");
 rep("pts.sort((u, v) => u[0] - v[0]); if (pts.length < 7) continue;\n    const k = Math.min(5", "pts.sort((u, v) => u[0] - v[0]); if (pts.length < 7) { TR('n:few', ts[pts[0][0]]); continue; }\n    const k = Math.min(5");

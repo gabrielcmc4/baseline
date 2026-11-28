@@ -22,7 +22,7 @@ function frames(cb) { // every picture as RGBA at W x H
 
 const t0 = Date.now();
 // 1. the court, from a picture one second in (as the app does from an early frame)
-let court = null; await frames((d, t) => { if (t < 1.0) return true; court = autoCourt({ width: W, height: H, data: d }); if (court) { try { const g = growCourt({ width: W, height: H, data: d }, court); if (g && g.cal) court = g; } catch (e) {} } return false; });
+let court = null; await frames((d, t, k) => { if (t < 0.5 || Math.round(t * fps) % Math.round(fps * 0.5)) return t < 3.0; let c = autoCourt({ width: W, height: H, data: d }); if (c) { try { const g = growCourt({ width: W, height: H, data: d }, c); if (g && g.cal) c = g; } catch (e) {} } if (c && (!court || c.cal.rms < court.cal.rms)) court = c; return t < 3.0; }); // the best of six pictures, as a person would pick the one where nobody stands on the lines
 if (!court) { console.log(JSON.stringify({ error: 'court not found' })); process.exit(2); }
 const cam = court.cal.cam, refPts = Object.values(court.lines).flat();
 // 2. the ball in every picture

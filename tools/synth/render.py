@@ -97,15 +97,15 @@ def net_layer(cam, ox=0.0):
     uv = cam.proj(top + bot)
     pts = np.round(uv * 16).astype(np.int32)
     cv2.fillPoly(over, [pts], (25, 30, 25), lineType=cv2.LINE_AA, shift=4)
-    cv2.fillPoly(alpha, [pts], 120, lineType=cv2.LINE_AA, shift=4)
+    cv2.fillPoly(alpha, [pts], 45, lineType=cv2.LINE_AA, shift=4)
     # mesh lines
     for z in np.arange(0.045, 1.07, 0.045):
         seg = [(ox + x, N, min(z, sim.net_height(x))) for x in xs]
         uv = np.round(cam.proj(seg) * 16).astype(np.int32)
-        cv2.polylines(over, [uv], False, (20, 20, 20), 1, cv2.LINE_AA, shift=4); cv2.polylines(alpha, [uv], False, 170, 1, cv2.LINE_AA, shift=4)
+        cv2.polylines(over, [uv], False, (20, 20, 20), 1, cv2.LINE_AA, shift=4); cv2.polylines(alpha, [uv], False, 110, 1, cv2.LINE_AA, shift=4)
     for x in np.arange(-P, P, 0.045 * 3):
         uv = np.round(cam.proj([(ox + x, N, 0), (ox + x, N, sim.net_height(x))]) * 16).astype(np.int32)
-        cv2.polylines(over, [uv], False, (20, 20, 20), 1, cv2.LINE_AA, shift=4); cv2.polylines(alpha, [uv], False, 150, 1, cv2.LINE_AA, shift=4)
+        cv2.polylines(over, [uv], False, (20, 20, 20), 1, cv2.LINE_AA, shift=4); cv2.polylines(alpha, [uv], False, 100, 1, cv2.LINE_AA, shift=4)
     # white tape 5 cm
     tt = [(ox + x, N, sim.net_height(x)) for x in xs] + [(ox + x, N, sim.net_height(x) - 0.06) for x in xs[::-1]]
     uv = np.round(cam.proj(tt) * 16).astype(np.int32)
