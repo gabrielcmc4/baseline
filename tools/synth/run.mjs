@@ -5,7 +5,7 @@ globalThis.__crumb = globalThis.__crumb || (() => {});
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 const TRACE = process.argv.includes('--trace') || process.argv.includes('--segs'); if (TRACE) { globalThis.__TR = []; globalThis.__SEGS = []; globalThis.__TRK = []; globalThis.__QUIET = []; globalThis.__NOQUIET = !!process.env.NOQUIET; execFileSync('node', [new URL('./trace.mjs', import.meta.url).pathname]); }
-const { autoCourt, growCourt, Camera, Detector, analyze, COURT, initFast, buildTracks } = await import(TRACE ? '../../js/engine.trace.mjs' : '../../js/engine.js');
+const { autoCourt, growCourt, Camera, Detector, analyze, COURT, initFast, buildTracks } = await import(TRACE ? '../../js/engine.trace.mjs' : process.env.ENGINE || '../../js/engine.js');
 const fast = await initFast(readFileSync(new URL('../../wasm/fast.wasm', import.meta.url)));
 
 const args = process.argv.slice(2), video = args[0], mode = args[1] && !args[1].startsWith('--') ? args[1] : 'match';

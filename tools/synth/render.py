@@ -345,7 +345,7 @@ def main():
         draw_people(True); draw_balls(True)
         img = (img * (1 - na_) + nr * na_).astype(np.uint8)
         draw_people(False); draw_balls(False)
-        out = np.clip(img.astype(np.float32) + noise[i % len(noise)], 0, 255).astype(np.uint8)
+        out = np.clip(img.astype(np.float32) + noise[i % len(noise)] + rng.normal(0, 0.8), 0, 255).astype(np.uint8)   # a little exposure flicker: a real sensor never gives two identical pictures, and identical ones are taken for repeated frames
         ff.stdin.write(out.tobytes())
         if i % 600 == 0:
             print('frame', i, '/', n, file=sys.stderr)
