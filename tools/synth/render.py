@@ -239,7 +239,7 @@ def main():
     ap.add_argument('--width', type=int, default=1920); ap.add_argument('--height', type=int, default=1080)
     ap.add_argument('--second', action='store_true'); ap.add_argument('--shake', type=float, default=0.0)
     ap.add_argument('--crf', type=int, default=23); ap.add_argument('--seconds', type=float, default=0)
-    ap.add_argument('--exposure', type=float, default=1 / 500); ap.add_argument('--loose', type=int, default=4)
+    ap.add_argument('--exposure', type=float, default=1 / 500); ap.add_argument('--loose', type=int, default=4); ap.add_argument('--dist', type=float, default=0.04)
     a = ap.parse_args()
     sc = json.load(open(a.scene))
     rng = np.random.default_rng(7)
@@ -249,6 +249,7 @@ def main():
         cam = Cam((-9.0, -6.2, 2.6), (2.0, 9.0, 0.0), a.width, a.height, hfov=68)
     else:
         raise SystemExit('cam?')
+    cam.dist = np.array([a.dist, -a.dist / 2, 0, 0, 0], float)
     C0, R0 = cam.C.copy(), cam.R.copy()
     look0 = C0 + R0[2] * 15
     bg = background(cam, rng, a.second)
@@ -349,7 +350,7 @@ def main():
         if i % 600 == 0:
             print('frame', i, '/', n, file=sys.stderr)
     ff.stdin.close(); ff.wait()
-    json.dump(dict(scene=a.scene, cam=a.cam, C=list(map(float, C0)), fps=a.fps, W=a.width, H=a.height, shots=sc['shots'], duration=dur), open(a.out.rsplit('.', 1)[0] + '.truth.json', 'w'))
+    json.dump(dict(scene=a.scene, cam=a.cam, dist=a.dist, C=list(map(float, C0)), fps=a.fps, W=a.width, H=a.height, shots=sc['shots'], duration=dur), open(a.out.rsplit('.', 1)[0] + '.truth.json', 'w'))
 
 
 if __name__ == '__main__':

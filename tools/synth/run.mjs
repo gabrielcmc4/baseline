@@ -4,7 +4,8 @@ globalThis.__crumb = globalThis.__crumb || (() => {});
 // written by render.py. Usage: node run.mjs video.mp4 [mode] [--json out.json]
 import { spawn, execFileSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { autoCourt, growCourt, Camera, Detector, analyze, COURT, initFast } from '../../js/engine.js';
+const TRACE = process.argv.includes('--trace') || process.argv.includes('--segs'); if (TRACE) { globalThis.__TR = []; globalThis.__SEGS = []; globalThis.__TRK = []; globalThis.__QUIET = []; globalThis.__NOQUIET = !!process.env.NOQUIET; execFileSync('node', [new URL('./trace.mjs', import.meta.url).pathname]); }
+const { autoCourt, growCourt, Camera, Detector, analyze, COURT, initFast, buildTracks } = await import(TRACE ? '../../js/engine.trace.mjs' : '../../js/engine.js');
 const fast = await initFast(readFileSync(new URL('../../wasm/fast.wasm', import.meta.url)));
 
 const args = process.argv.slice(2), video = args[0], mode = args[1] && !args[1].startsWith('--') ? args[1] : 'match';
@@ -46,8 +47,25 @@ if (existsSync(truthPath)) { const T = JSON.parse(readFileSync(truthPath)); out.
   const res = m.filter(r => r.truth.result !== 'none'), resOk = res.filter(r => r.got.result === r.truth.result || (r.truth.result !== 'in' && r.truth.result !== 'net' && ['long', 'wide'].includes(r.got.result)));
   const med = a => { const b = [...a].sort((x, y) => x - y); return b.length ? b[b.length >> 1] : null; };
   out.score = { truth: T.shots.length, matched: m.length, missed: T.shots.length - m.length, extra: extra.length, speedErrMedPct: sp.length ? +(100 * med(sp.map(Math.abs))).toFixed(1) : null, speedBiasPct: sp.length ? +(100 * sp.reduce((a, b) => a + b, 0) / sp.length).toFixed(1) : null, landErrMedM: ld.length ? +med(ld).toFixed(2) : null, resultOk: `${resOk.length}/${res.length}` };
+  // how much of each flight the ball detector saw: frames with a candidate within 8 px of the true ball
+  if (T.scene && existsSync(T.scene)) { const Sc = JSON.parse(readFileSync(T.scene)), B = Sc.ball.filter(Boolean), sx = W / T.W;
+    const bAt = t => { let lo = 0, hi = B.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (B[m][0] < t) lo = m + 1; else hi = m; } return Math.abs(B[lo][0] - t) < 0.004 ? B[lo] : null; };
+    const fi = t => { let lo = 0, hi = F.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (F[m].t < t) lo = m + 1; else hi = m; } return lo; };
+    T.shots.forEach((sh, k) => { const end = Math.min(k + 1 < T.shots.length ? T.shots[k + 1].t : sh.t + 2, sh.t + (sh.tLand || 1.5) + 0.3); let look = 0, seen = 0, run = 0, best = 0, inPic = 0;
+      for (let i = fi(sh.t + 0.02); i < F.length && F[i].t < end; i++) { const b = bAt(F[i].t); if (!b) continue; let u; try { u = cam.project([b[1], b[2], b[3]]); } catch (e) { continue; } look++;
+        if (!u || u[0] < 0 || u[0] >= W || u[1] < 0 || u[1] >= H) { run = 0; continue; } inPic++;
+        const hit = (F[i].c2 || F[i].c || []).some(c => Math.hypot(c[0] - u[0], c[1] - u[1]) < 8 * W / 1280); if (hit) { seen++; run++; best = Math.max(best, run); } else run = 0; }
+      rows[k].cov = { look, inPic, seen, run: best }; }); }
+  if (globalThis.__TR) rows.forEach(r => { const ev = globalThis.__TR.filter(([w, t]) => t > r.t - 0.6 && t < r.t + (r.far ? 1.3 : 0.9)); r.trace = [...new Set(ev.filter(([w]) => w[0] === (r.far ? 'f' : 'n') && !/climb|f:start/.test(w)).map(([w, t]) => w + '@' + (t - r.t).toFixed(2)))].slice(0, 24).join(' '); });
   out.rows = rows; out.extra = extra; }
+if (args.includes('--segs')) { const T0 = +args[args.indexOf('--segs') + 1], T1 = T0 + 1.4; const TT = JSON.parse(readFileSync(truthPath)), Sc = JSON.parse(readFileSync(TT.scene)), B = Sc.ball.filter(Boolean);
+  for (let t = T0; t < T1; t += 0.1) { const b = B.reduce((a, c) => Math.abs(c[0] - t) < Math.abs(a[0] - t) ? c : a); console.log('truth', t.toFixed(2), cam.project([b[1], b[2], b[3]]).map(Math.round).join(',')); }
+  for (const f of F) { if (f.t < T0 || f.t > T1) continue; const b = B.reduce((a, c) => Math.abs(c[0] - f.t) < Math.abs(a[0] - f.t) ? c : a), u = cam.project([b[1], b[2], b[3]]); const md = L => L && L.length ? Math.round(Math.min(...L.map(c => Math.hypot(c[0] - u[0], c[1] - u[1])))) : -1; console.log('cand', f.t.toFixed(3), u.map(Math.round).join(','), 'c', md(f.c), (f.c || []).length, 'c2', md(f.c2), (f.c2 || []).length, f.valid ? '' : 'INVALID', f.cut ? 'CUT' : ''); }
+  { const s1 = Math.sqrt(W * H / (720 * 1280)); const i0 = F.findIndex(f => f.t > T0 - 0.5), i1 = F.findIndex(f => f.t > T1); const sub = F.slice(i0, i1); for (const tr of buildTracks(sub, s1)) { console.log('BT', sub[tr[0][0]].t.toFixed(3), tr.length, tr[0].slice(1, 3).map(Math.round).join(','), tr[tr.length - 1].slice(1, 3).map(Math.round).join(',')); if (tr.length > 60) console.log('  pts', tr.filter((p, i) => i % 3 === 0).map(p => sub[p[0]].t.toFixed(2) + ':' + Math.round(p[1]) + ',' + Math.round(p[2])).join(' ')); } }
+  for (const g of globalThis.__TRK) if (g[0] > T0 - 0.3 && g[0] < T1) console.log('track', JSON.stringify(g));
+  for (const g of globalThis.__SEGS) if (g[0] > T0 - 0.3 && g[0] < T1) console.log('seg', JSON.stringify(g)); }
+if (globalThis.__QUIET && globalThis.__QUIET.length) console.log('quiet cells', JSON.stringify(globalThis.__QUIET.slice(0, 40)));
 if (jsonOut) writeFileSync(jsonOut, JSON.stringify(out, null, 1));
 console.log(JSON.stringify({ ...out, rows: undefined, extra: undefined }, null, 1));
-if (out.rows) for (const r of out.rows) console.log(r.t.toFixed(2), r.far ? 'F' : 'N', r.volley ? 'V' : ' ', 'truth', r.truth.speed, r.truth.result, JSON.stringify(r.truth.land), 'clr', r.truth.clear, ' | got', r.got ? `${r.got.speed} ${r.got.result} ${JSON.stringify(r.got.land)} clr ${r.got.clear} dt ${r.got.dt}` : 'MISSED');
+if (out.rows) for (const r of out.rows) console.log(r.t.toFixed(2), r.far ? 'F' : 'N', r.volley ? 'V' : ' ', r.cov ? `cov ${r.cov.seen}/${r.cov.inPic}/${r.cov.look} run ${r.cov.run}` : '', 'truth', r.truth.speed, r.truth.result, JSON.stringify(r.truth.land), 'clr', r.truth.clear, ' | got', r.got ? `${r.got.speed} ${r.got.result} ${JSON.stringify(r.got.land)} clr ${r.got.clear} dt ${r.got.dt}` : 'MISSED', r.got ? '' : (r.trace || ''));
 if (out.extra && out.extra.length) console.log('extra', JSON.stringify(out.extra));
